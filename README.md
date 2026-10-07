@@ -4,7 +4,8 @@
 纯 PowerShell 实现，无第三方依赖，不需要管理员权限，不修改原版安装。
 
 > 原理参考并改编自 [Yaozhu666/Codex-Chinese](https://github.com/Yaozhu666/Codex-Chinese)（MIT License），
-> 在其基础上更新补丁规则以适配 **Codex 26.930.7945.0（Store 版，2026-10 实测）**。
+> 在其基础上更新补丁规则并实测适配：
+> **26.930.7945.0（Store 版）**、**26.915.4065.0（MSIX 安装包，全流程打补丁实测通过）**。
 
 ## 原理
 
@@ -17,7 +18,9 @@ Codex 桌面版官方自带完整的简体中文翻译包（app.asar 内含 `zh-
 
 ## 使用
 
-1. 下载本仓库（Code → Download ZIP，或 `git clone`）；
+0. 没装 Codex 的电脑：先用 Release 里附带的官方 MSIX 安装包安装（已实测 26.915.4065.0 可用），
+   或从 Microsoft Store / 官网安装任意版本；
+1. 下载本仓库（Code → Download ZIP，或 Release 里的 `Codex-Chinese-v*.zip`）；
 2. 双击 `install.cmd`，按提示完成（Store 版首次会复制约 1~2GB 副本，仅一次）；
 3. 用桌面新建的 **「Codex 本地化版」** 快捷方式启动；
 4. 在 设置 → General → Language 中选 **中文（中国）** 或 **English**，立即生效。
