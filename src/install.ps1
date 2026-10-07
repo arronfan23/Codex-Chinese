@@ -402,9 +402,23 @@ if ($mode -eq 'store-copy') {
 # 是否需要补丁
 $asarPath = Join-Path $targetApp 'resources\app.asar'
 $needPatch = $Force -or (-not (Test-Path -LiteralPath $asarPath))
+$cfg = Read-InstallConfig
 if (-not $needPatch) {
-    $cfg = Read-InstallConfig
-    $needPatch = -not ($cfg -and $cfg.version -eq $version -and (Test-Path -LiteralPath (Join-Path $targetApp 'ChatGPT.exe')))
+    # schemaVersion < 3 的副本是旧版工具打的（asar 对齐/完整性有 bug），必须重打
+    $needPatch = -not ($cfg -and $cfg.schemaVersion -ge 3 -and $cfg.version -eq $version -and (Test-Path -LiteralPath (Join-Path $targetApp 'ChatGPT.exe')))
+}
+if ($needPatch -and $cfg -and $cfg.version -eq $version -and $cfg.schemaVersion -lt 3) {
+    # 旧版工具打过的副本：当前 asar/exe 已损坏，先从备份还原原版再重新打补丁
+    $bakAsar = Join-Path $targetApp 'resources\app.asar.bak'
+    if (Test-Path -LiteralPath $bakAsar) {
+        Write-Info "检测到旧版工具的补丁副本，先从备份还原原始 app.asar ..."
+        Copy-FileBytes -Src $bakAsar -Dst $asarPath
+    }
+    $exeBak = Join-Path $targetApp 'ChatGPT.exe.bak'
+    $exeCur = Join-Path $targetApp 'ChatGPT.exe'
+    if ((Test-Path -LiteralPath $exeBak) -and (Test-Path -LiteralPath $exeCur)) {
+        Copy-FileBytes -Src $exeBak -Dst $exeCur
+    }
 }
 if ($needPatch) {
     $workDir = Join-Path $localizeRoot ("work-" + (Get-Date -Format 'yyyyMMddHHmmss'))
@@ -420,7 +434,7 @@ if ($needPatch) {
 
 # 写配置与版本
 Write-InstallConfig -Config @{
-    schemaVersion = 2
+    schemaVersion = 3
     mode          = $mode
     sourcePath    = $appDir
     installPath   = $targetApp
