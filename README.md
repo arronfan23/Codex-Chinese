@@ -43,7 +43,7 @@ Store/MSIX 版（受保护目录）        官网安装版（可写目录）
 2. **下载本工具**：[最新 Release](https://github.com/arronfan23/Codex-Chinese/releases/latest)
    里的 zip，解压；
 3. **双击 `install.cmd`**，全程有进度条；Store 版首次会复制约 1~2GB 副本，仅一次；
-4. 用桌面新建的 **「Codex 本地化版」** 快捷方式启动；
+4. 用桌面新建的 **「Codex」** 快捷方式启动（指向本地化副本，原版开始菜单入口不受影响）；
 5. 在 **设置 → General → Language** 选 **中文（中国）** 或 **English**，立即生效，随时切换。
 
 想恢复原版？直接启动原来的 Codex 图标即可，两者互不影响。

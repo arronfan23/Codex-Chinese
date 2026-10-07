@@ -474,7 +474,7 @@ Set-Content -LiteralPath (Join-Path $localizeRoot 'launch.cmd') -Value $cmdConte
 if (-not $NoShortcut) {
     $desktop = [Environment]::GetFolderPath('Desktop')
     $exePath = Join-Path $targetApp 'ChatGPT.exe'
-    $lnkPath = Join-Path $desktop 'Codex 本地化版.lnk'
+    $lnkPath = Join-Path $desktop 'Codex.lnk'
     if (-not (Test-Path -LiteralPath $exePath)) {
         $codexExe = Join-Path $targetApp 'resources\codex.exe'
         if (Test-Path -LiteralPath $codexExe) { $exePath = $codexExe }
@@ -484,13 +484,13 @@ if (-not $NoShortcut) {
         $sc = $ws.CreateShortcut($lnkPath)
         $sc.TargetPath = Join-Path $localizeRoot 'launch.cmd'
         $sc.IconLocation = ($exePath + ',0')
-        $sc.Description = '启动 Codex 本地化版（保留原版，自动适配更新）'
+        $sc.Description = '启动 Codex（中文本地化副本，原版保留，自动适配更新）'
         $sc.Save()
         Write-Ok "已创建桌面快捷方式：$lnkPath"
     }
 }
 
-Write-Ok "安装完成！以后请通过桌面『Codex 本地化版』快捷方式启动（会自动适配更新）。"
+Write-Ok "安装完成！以后请通过桌面『Codex』快捷方式启动（会自动适配更新）。"
 Write-Ok "语言切换：启动后在 设置→General→Language 选择中文或 English 即可自由切换。"
 if (-not $Silent) {
     $r = Read-Host "现在立即启动本地化版 Codex？[y/N]"
