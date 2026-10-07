@@ -17,6 +17,22 @@ function ConvertTo-LongPath {
     return '\\?\' + $full
 }
 
+# 进度条节流：Write-Progress 调用开销大，每 150ms 最多刷新一次
+$script:progressSw = $null
+function Write-ThrottledProgress {
+    param([string]$Activity, [string]$Status, [double]$Percent)
+    if ($null -eq $script:progressSw) { $script:progressSw = [System.Diagnostics.Stopwatch]::StartNew() }
+    if ($script:progressSw.ElapsedMilliseconds -lt 150) { return }
+    $script:progressSw.Restart()
+    if ($Percent -lt 0) { $Percent = 0 }; if ($Percent -gt 100) { $Percent = 100 }
+    Write-Progress -Activity $Activity -Status $Status -PercentComplete $Percent
+}
+
+function Complete-UtilProgress {
+    param([string]$Activity)
+    Write-Progress -Activity $Activity -Completed
+}
+
 # 长路径安全删除目录（Remove-Item 对 >260 字符路径会失败）
 function Remove-TreeLong {
     param([string]$Path)
@@ -90,6 +106,14 @@ function Expand-Asar {
     }
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
     $hdr = Read-AsarHeader -AsarPath $AsarPath
+    # 预统计文件总数用于进度条（只走头部 JSON，不读数据区）
+    $script:expandTotal = 0
+    function Measure-Node { param($Node)
+        $files = Get-AsarProp $Node 'files'
+        if ($null -ne $files) { foreach ($p in $files.PSObject.Properties) { Measure-Node $p.Value }; return }
+        if (-not (Get-AsarProp $Node 'unpacked')) { $script:expandTotal++ }
+    }
+    Measure-Node $hdr.Json
     $fs = [System.IO.File]::OpenRead($AsarPath)
     try {
         $script:expandedFiles = 0
@@ -127,9 +151,11 @@ function Expand-Asar {
                 }
                 $script:expandedFiles++
             } finally { $out.Dispose() }
+            Write-ThrottledProgress -Activity '解包 app.asar' -Status ("{0}/{1} 个文件" -f $script:expandedFiles, $script:expandTotal) -Percent (100.0 * $script:expandedFiles / [Math]::Max(1, $script:expandTotal))
         }
 
         Walk-Node -Node $hdr.Json -Rel '' -Stream $fs -DataOffset $hdr.DataOffset -OutRoot $OutDir
+        Complete-UtilProgress -Activity '解包 app.asar'
         Write-Output ("解包完成: 文件 {0} 个, 字节 {1:N1} MB, unpacked 标记 {2} 个" -f $script:expandedFiles, ($script:expandedBytes/1MB), $script:expandedUnpacked)
     } finally { $fs.Dispose() }
 }
@@ -165,6 +191,12 @@ function New-Asar {
 
     $script:packedFiles = 0
     $script:packedBytes = [long]0
+    $script:hashedFiles = 0
+    # 预统计文件总数用于进度条
+    $script:hashTotal = 0
+    try {
+        foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $InDir), '*', [System.IO.SearchOption]::AllDirectories)) { $script:hashTotal++ }
+    } catch {}
 
     function Build-Node {
         param([string]$Path, [string]$Rel)
@@ -190,12 +222,15 @@ function New-Asar {
                 $script:packedFiles++
                 # 逐文件 integrity：Electron 开启 asar 完整性校验后读文件会核对
                 $ig = Get-FileIntegrity -Path $Path
+                $script:hashedFiles++
+                Write-ThrottledProgress -Activity '重打包 app.asar（1/2）计算文件校验' -Status ("{0}/{1} 个文件" -f $script:hashedFiles, $script:hashTotal) -Percent (100.0 * $script:hashedFiles / [Math]::Max(1, $script:hashTotal))
                 return @{ 'size' = $len; 'offset' = [string]$off; 'integrity' = $ig }
             }
         }
     }
 
     $header = Build-Node -Path $InDir -Rel ''
+    Complete-UtilProgress -Activity '重打包 app.asar（1/2）计算文件校验'
 
     # 把 unpacked 文件条目补回头部（这些文件不在 asar 数据内，在 app.asar.unpacked）
     # 把 unpacked 文件条目补回头部（这些文件不在 asar 数据内，在 app.asar.unpacked）
@@ -237,6 +272,7 @@ function New-Asar {
         $bw.Write($jsonBytes)
         for ($i = 0; $i -lt $pad; $i++) { $bw.Write([byte]0) }
 
+    $script:writtenBytes = [long]0
     function Write-Data {
         param([string]$Path, [string]$Rel, $Writer)
         $item = Get-Item -LiteralPath (ConvertTo-LongPath $Path)
@@ -250,13 +286,18 @@ function New-Asar {
                 $in = [System.IO.File]::OpenRead((ConvertTo-LongPath $Path))
                     try {
                         $buf = New-Object byte[] (8MB)
-                        while (($r = $in.Read($buf,0,$buf.Length)) -gt 0) { $Writer.Write($buf,0,$r) }
+                        while (($r = $in.Read($buf,0,$buf.Length)) -gt 0) {
+                            $Writer.Write($buf,0,$r)
+                            $script:writtenBytes += $r
+                            Write-ThrottledProgress -Activity '重打包 app.asar（2/2）写入数据' -Status ("{0:N0}/{1:N0} MB" -f ($script:writtenBytes/1MB), ($script:packedBytes/1MB)) -Percent (100.0 * $script:writtenBytes / [Math]::Max([long]1, $script:packedBytes))
+                        }
                     } finally { $in.Dispose() }
                 }
             }
         }
         Write-Data -Path $InDir -Rel '' -Writer $bw
         $bw.Flush()
+        Complete-UtilProgress -Activity '重打包 app.asar（2/2）写入数据'
     } finally { $out.Dispose() }
 
     $fi = Get-Item -LiteralPath $OutPath

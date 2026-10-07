@@ -33,6 +33,7 @@ $configFile   = Join-Path $localizeRoot 'install.json'
 $scriptDir    = $PSScriptRoot
 
 . (Join-Path $scriptDir 'asar-util.ps1')
+. (Join-Path $scriptDir 'smo-banner.ps1')
 
 function Get-CodexVersionFromDir {
     param([string]$AppDir)
@@ -127,7 +128,9 @@ function Start-CodexWithIdentity {
 }
 
 # ---------- 主流程 ----------
-Write-Info "=== Codex 本地化版启动器 ==="
+Show-SmoBanner
+Write-Host "    Codex 中文本地化版启动器  |  arronfan23/Codex-Chinese" -ForegroundColor Cyan
+Write-Host ''
 
 # 读取配置（兼容旧副本：无配置但存在 zh-cn-patched 时，提示先运行新安装器迁移）
 $config = $null

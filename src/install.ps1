@@ -55,6 +55,7 @@ function Write-Log { param([string]$m) try { Add-Content -LiteralPath $logFile -
 # ---------- 工具 ----------
 . (Join-Path $scriptDir 'asar-util.ps1')
 . (Join-Path $scriptDir 'patch-rules.ps1')
+. (Join-Path $scriptDir 'smo-banner.ps1')
 
 # ---------- 带重试的封装 ----------
 function Invoke-WithRetry {
@@ -162,7 +163,11 @@ function Copy-TreeBytes {
             $out = [System.IO.File]::Create($target)
             try {
                 $buf = New-Object byte[] (8MB)
-                while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) { $out.Write($buf, 0, $r) }
+                while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+                    $out.Write($buf, 0, $r)
+                    $script:copyBytes += $r
+                    Write-ThrottledProgress -Activity '复制 Codex 副本' -Status ("{0:N0}/{1:N0} MB" -f ($script:copyBytes/1MB), ($script:copyTotalBytes/1MB)) -Percent (100.0 * $script:copyBytes / [Math]::Max([long]1, $script:copyTotalBytes))
+                }
             } finally { $out.Dispose() }
         } finally { $in.Dispose() }
     }
@@ -313,7 +318,9 @@ function Read-InstallConfig {
 }
 
 # ---------- 主流程 ----------
-Write-Info "=== Codex 本地化安装器（开源通用版）==="
+Show-SmoBanner
+Write-Host "    Codex 中文本地化工具  |  arronfan23/Codex-Chinese" -ForegroundColor Cyan
+Write-Host ''
 Write-Log "启动安装器"
 New-Item -ItemType Directory -Force -Path $localizeRoot | Out-Null
 
@@ -391,7 +398,15 @@ if ($mode -eq 'store-copy') {
         }
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Write-Info "复制 Codex 到 $targetApp ..."
+        $script:copyBytes = [long]0
+        $script:copyTotalBytes = [long]0
+        try {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
+                $script:copyTotalBytes += (New-Object System.IO.FileInfo($f)).Length
+            }
+        } catch {}
         Copy-TreeBytes -Src $appDir -Dst $targetApp
+        Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
         Write-Ok ("复制完成，耗时 {0:N1} 秒" -f $sw.Elapsed.TotalSeconds)
     } else {
@@ -446,7 +461,7 @@ Set-Content -LiteralPath $versionFile -Value $version -Encoding UTF8
 Write-Log "安装完成 version=$version"
 
 # 复制启动脚本到 localizeRoot（自包含）
-foreach ($f in @('install.ps1', 'launch.ps1', 'asar-util.ps1', 'patch-rules.ps1')) {
+foreach ($f in @('install.ps1', 'launch.ps1', 'asar-util.ps1', 'patch-rules.ps1', 'smo-banner.ps1')) {
     $srcF = Join-Path $scriptDir $f
     if (Test-Path -LiteralPath $srcF) {
         Copy-Item -LiteralPath $srcF -Destination (Join-Path $localizeRoot $f) -Force -ErrorAction SilentlyContinue
