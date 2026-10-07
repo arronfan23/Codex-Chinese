@@ -90,6 +90,42 @@ function Stop-CodexProcesses {
     Start-Sleep -Seconds 1
 }
 
+# ---------- 包身份注入启动 ----------
+# MSIX 打包的 Codex（Store 版 / 官网 MSIX）要求进程必须有程序包标识符，
+# 复制出来的副本直接运行会弹 "ChatGPT failed to start / 该进程没有程序包标识符"。
+# 用 Invoke-CommandInDesktopPackage 借已安装包的身份启动副本即可绕过（无需管理员）。
+function Get-CodexPackageInfo {
+    try {
+        $pkg = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'OpenAI.*Codex|^Codex$' } | Select-Object -First 1
+        if (-not $pkg) { return $null }
+        $appId = $null
+        try {
+            $manifest = Get-AppxPackageManifest $pkg
+            $appId = @($manifest.Package.Applications.Application)[0].Id
+        } catch {}
+        if (-not $appId) { $appId = 'App' }
+        return @{ Pfn = $pkg.PackageFamilyName; AppId = $appId }
+    } catch { return $null }
+}
+
+function Start-CodexWithIdentity {
+    param([string]$ExePath, [string]$ArgLine)
+    $info = Get-CodexPackageInfo
+    if (-not $info) { return $false }
+    if (-not (Get-Command Invoke-CommandInDesktopPackage -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        if ($ArgLine) {
+            Invoke-CommandInDesktopPackage -PackageFamilyName $info.Pfn -AppId $info.AppId -Command $ExePath -Args $ArgLine
+        } else {
+            Invoke-CommandInDesktopPackage -PackageFamilyName $info.Pfn -AppId $info.AppId -Command $ExePath
+        }
+        return $true
+    } catch {
+        Write-Warn "包身份注入启动失败（$($_.Exception.Message)），尝试直接启动..."
+        return $false
+    }
+}
+
 # ---------- 主流程 ----------
 Write-Info "=== Codex 本地化版启动器 ==="
 
@@ -168,9 +204,14 @@ if ($needReinstall) {
 $exePath = Join-Path $targetApp 'ChatGPT.exe'
 if (-not (Test-Path -LiteralPath $exePath)) { Write-Err "启动文件缺失：$exePath"; exit 1 }
 
-$args = @()
-if ($lang) { $args += "--lang=$lang" }
-Write-Info "启动：$exePath $($args -join ' ')"
-Start-Process -FilePath $exePath -ArgumentList $args
+$argLine = ''
+if ($lang) { $argLine = "--lang=$lang" }
+Write-Info "启动：$exePath $argLine"
+$started = Start-CodexWithIdentity -ExePath $exePath -ArgLine $argLine
+if (-not $started) {
+    $args = @()
+    if ($argLine) { $args += $argLine }
+    Start-Process -FilePath $exePath -ArgumentList $args
+}
 Write-Ok "已启动。语言可在 设置→General→Language 自由切换。"
 exit 0

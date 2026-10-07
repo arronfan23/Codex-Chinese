@@ -205,6 +205,48 @@ function Stop-CodexProcesses {
 }
 
 # ---------- 补丁（解包 -> 规则库 -> 重打包(重试) -> 原子替换）----------
+
+# 同步 exe 内嵌的 asar 完整性哈希。
+# 新版 Electron 开启 EnableEmbeddedAsarIntegrityValidation：启动时计算 app.asar
+# 头部 JSON 的 SHA256，与 exe 内嵌记录比对，不一致直接 FATAL 退出（进程秒退、无任何窗口）。
+# 修改过 app.asar 后必须把新哈希写回 exe（定长 64 字符十六进制，原地替换）。
+function Sync-ExeAsarIntegrity {
+    param([string]$AppDir, [string]$AsarPath)
+    $exe = Join-Path $AppDir 'ChatGPT.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { return }
+    # 1) 新头部哈希（offset 16 起的 jsonLen 字节）
+    $fs = [System.IO.File]::OpenRead($AsarPath)
+    try {
+        $br = New-Object System.IO.BinaryReader($fs)
+        $fs.Seek(12, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $jsonLen = [int]$br.ReadUInt32()
+        $fs.Seek(16, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $jsonBytes = $br.ReadBytes($jsonLen)
+    } finally { $fs.Dispose() }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $newHash = -join ($sha.ComputeHash($jsonBytes) | ForEach-Object { $_.ToString('x2') }) } finally { $sha.Dispose() }
+
+    # 2) 定位 exe 内嵌记录并替换
+    $bytes = [System.IO.File]::ReadAllBytes($exe)
+    $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+    $needle = '"file":"resources\\app.asar","alg":"SHA256","value":"'
+    $idx = $text.IndexOf($needle)
+    if ($idx -lt 0) { Write-Info "exe 内未发现 asar 完整性记录（该版本未启用校验），跳过。"; return }
+    $hashStart = $idx + $needle.Length
+    $oldHash = $text.Substring($hashStart, 64)
+    if ($oldHash -notmatch '^[0-9a-f]{64}$') { Write-Warn "asar 完整性记录格式异常，跳过（可能导致无法启动）。"; return }
+    if ($oldHash -eq $newHash) { Write-Info "exe 完整性记录已一致。"; return }
+    $bak = $exe + '.bak'
+    if (-not (Test-Path -LiteralPath $bak)) { Copy-FileBytes -Src $exe -Dst $bak }
+    $newBytes = [System.Text.Encoding]::ASCII.GetBytes($newHash)
+    $fs2 = [System.IO.File]::OpenWrite($exe)
+    try {
+        $fs2.Seek($hashStart, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $fs2.Write($newBytes, 0, 64)
+    } finally { $fs2.Dispose() }
+    Write-Ok ("已同步 exe 内嵌 asar 完整性哈希（{0}... -> {1}...）" -f $oldHash.Substring(0, 12), $newHash.Substring(0, 12))
+}
+
 function Patch-App {
     param([string]$AppDir, [string]$Work)
     $asar = Join-Path $AppDir 'resources\app.asar'
@@ -255,6 +297,7 @@ function Patch-App {
         throw "请确认 Codex（含本地化副本）已完全退出后重试。"
     }
     Write-Ok "补丁完成并已替换 app.asar"
+    Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
 }
 
 # ---------- 写/读配置 ----------

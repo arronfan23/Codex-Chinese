@@ -33,6 +33,17 @@ Codex 更新后无需手动处理：启动器检测到版本变化会自动重�
 - 关键补丁规则泛化为 `.get(\`enable_i18n\`,!1)`：26.930.x 版本中混淆变量名已从 `a?` 变为 `s?`，
   上游规则会未命中，本规则兼容两种写法；
 - 默认语言回退规则更新为 `getLocale():\`en\`` → `getLocale():\`zh-CN\``（26.930.x 实测命中 1 处）；
+- **修复 asar 完整性校验导致的启动即退（v1.2.0）**：新版 Codex 的 Electron 开启了
+  `EnableEmbeddedAsarIntegrityValidation`，启动时计算 app.asar 头部 JSON 的 SHA256 并与
+  ChatGPT.exe 内嵌记录比对，不一致直接 FATAL 退出（无窗口、无报错）。本工具重打包时
+  为每个文件生成 integrity 哈希（整文件 SHA256 + 4MB 分块），并把新的头部哈希同步写回
+  exe 内嵌记录（原 exe 自动备份为 `ChatGPT.exe.bak`）；
+- **修复 asar 头部对齐 bug（v1.2.0）**：chromium pickle 会把头部 JSON 补零到 4 字节对齐，
+  原解包器未处理 padding，导致解出的文件整体偏移 1~3 字节（上游在 header 长度恰好 4 对齐的
+  版本上不会触发，本版本必现）；
+- **启动器支持包身份注入（v1.2.0）**：对 MSIX 安装（Store / 官网 MSIX）的机器，启动器通过
+  `Invoke-CommandInDesktopPackage` 借用已安装包的标识符启动副本，规避
+  "ChatGPT failed to start / 该进程没有程序包标识符" 报错（无需管理员）；
 - 安装器关闭进程时只针对补丁目标，**不会结束正在运行的原版 Codex**（副本模式）；
 - `install.cmd` / `launch.cmd` 放在仓库根目录，路径已相应修正。
 
@@ -52,4 +63,5 @@ Codex 更新后无需手动处理：启动器检测到版本变化会自动重�
 
 - 本工具只改界面语言，**不解决网络问题**（API 访问请自行配置）。
 - Codex 自动更新后如界面回到英文，重新运行一次 `install.cmd` 即可。
+- 若启动时报 "该进程没有程序包标识符"：说明用的还是旧版工具，下载 v1.2.0+ 重新安装即可。
 - 仅供学习交流，非官方方案，使用前请自行核对。

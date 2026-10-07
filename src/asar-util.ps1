@@ -41,11 +41,37 @@ function Read-AsarHeader {
             $json = [System.Text.Encoding]::UTF8.GetString($jsonBytes)
             try {
                 $obj = $json | ConvertFrom-Json
-                return @{ JsonLen = [long]$len; Json = $obj; DataOffset = [long](16 + $len) }
+                # chromium pickle 会把头部 JSON 补零到 4 字节对齐，数据区起点 = 16 + jsonLen + pad
+                $pad = 0
+                if ($len -eq $u3) { $pad = [int]($u2 - $u3 - 4); if ($pad -lt 0 -or $pad -gt 3) { $pad = 0 } }
+                return @{ JsonLen = [long]$len; Json = $obj; DataOffset = [long](16 + $len + $pad); Pad = $pad }
             } catch { }
         }
         throw "无法解析 asar 头部: $AsarPath"
     } finally { $fs.Dispose() }
+}
+
+# 计算单个文件的 asar integrity（整文件 SHA256 + 每 4MB 块 SHA256）
+function Get-FileIntegrity {
+    param([string]$Path)
+    $blockSize = 4194304
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $fs = [System.IO.File]::OpenRead((ConvertTo-LongPath $Path))
+    try {
+        $blocks = New-Object System.Collections.ArrayList
+        $buf = New-Object byte[] ($blockSize)
+        while (($r = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+            $sha.TransformBlock($buf, 0, $r, $buf, 0) | Out-Null
+            $bsha = [System.Security.Cryptography.SHA256]::Create()
+            try {
+                $bh = $bsha.ComputeHash($buf, 0, $r)
+                [void]$blocks.Add((-join ($bh | ForEach-Object { $_.ToString('x2') })))
+            } finally { $bsha.Dispose() }
+        }
+        $sha.TransformFinalBlock((New-Object byte[] 0), 0, 0) | Out-Null
+        $whole = -join ($sha.Hash | ForEach-Object { $_.ToString('x2') })
+    } finally { $fs.Dispose(); $sha.Dispose() }
+    return [ordered]@{ algorithm = 'SHA256'; hash = $whole; blockSize = $blockSize; blocks = @($blocks.ToArray()) }
 }
 
 function Expand-Asar {
@@ -128,7 +154,9 @@ function New-Asar {
             }
             if (Get-AsarProp $Node 'unpacked') {
                 $sz = Get-AsarProp $Node 'size'
-                $script:unpackedSet[$Rel] = if ($null -ne $sz) { [long]$sz } else { 0 }
+                # 保留原始 integrity（unpacked 文件内容不变，哈希依旧有效）
+                $ig = Get-AsarProp $Node 'integrity'
+                $script:unpackedSet[$Rel] = @{ Size = $(if ($null -ne $sz) { [long]$sz } else { 0 }); Integrity = $ig }
             }
         }
         Collect-Unpacked -Node $ohdr.Json -Rel ''
@@ -152,12 +180,17 @@ function New-Asar {
         } else {
             $len = $item.Length
             if ($script:unpackedSet.ContainsKey($Rel)) {
-                return @{ 'size' = $len; 'unpacked' = $true }
+                $entry = @{ 'size' = $len; 'unpacked' = $true }
+                $ig0 = $script:unpackedSet[$Rel].Integrity
+                if ($null -ne $ig0) { $entry['integrity'] = $ig0 }
+                return $entry
             } else {
                 $off = $script:packedBytes
                 $script:packedBytes += $len
                 $script:packedFiles++
-                return @{ 'size' = $len; 'offset' = [string]$off }
+                # 逐文件 integrity：Electron 开启 asar 完整性校验后读文件会核对
+                $ig = Get-FileIntegrity -Path $Path
+                return @{ 'size' = $len; 'offset' = [string]$off; 'integrity' = $ig }
             }
         }
     }
@@ -182,7 +215,9 @@ function New-Asar {
             $files = $node['files']
             $leaf = $parts[-1]
             if (-not $files.ContainsKey($leaf)) {
-                $files[$leaf] = @{ 'size' = $Map[$uRel]; 'unpacked' = $true }
+                $entry = @{ 'size' = $Map[$uRel].Size; 'unpacked' = $true }
+                if ($null -ne $Map[$uRel].Integrity) { $entry['integrity'] = $Map[$uRel].Integrity }
+                $files[$leaf] = $entry
             }
         }
     }
@@ -193,11 +228,14 @@ function New-Asar {
     $out = [System.IO.File]::Create($OutPath)
     try {
         $bw = New-Object System.IO.BinaryWriter($out)
+        # chromium pickle 布局：头部 JSON 补零到 4 字节对齐，三个长度字段需与实际一致
+        $pad = (4 - ($jsonBytes.Length % 4)) % 4
         $bw.Write([uint32]4)
-        $bw.Write([uint32]($jsonBytes.Length + 8))
-        $bw.Write([uint32]($jsonBytes.Length + 4))
+        $bw.Write([uint32]($jsonBytes.Length + $pad + 8))
+        $bw.Write([uint32]($jsonBytes.Length + $pad + 4))
         $bw.Write([uint32]$jsonBytes.Length)
         $bw.Write($jsonBytes)
+        for ($i = 0; $i -lt $pad; $i++) { $bw.Write([byte]0) }
 
     function Write-Data {
         param([string]$Path, [string]$Rel, $Writer)
