@@ -158,18 +158,41 @@ function Copy-TreeBytes {
     foreach ($file in [System.IO.Directory]::EnumerateFiles($Src)) {
         $name = [System.IO.Path]::GetFileName($file)
         $target = Join-Path $Dst $name
-        $in = [System.IO.File]::OpenRead($file)
+        Copy-FileRobust -Src $file -Dst $target
+    }
+}
+
+# 单文件复制（带重试）：目标已存在且只读/残留占用时，清属性删除后重试一次；
+# 仍失败则记入 $script:copyFailed，最后统一报错提示（杀毒软件/勒索防护可能拦截 DLL 写入）
+$script:copyFailed = @()
+function Copy-FileRobust {
+    param([string]$Src, [string]$Dst)
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
         try {
-            $out = [System.IO.File]::Create($target)
+            if ($attempt -eq 2 -and [System.IO.File]::Exists($Dst)) {
+                [System.IO.File]::SetAttributes($Dst, [System.IO.FileAttributes]::Normal)
+                [System.IO.File]::Delete($Dst)
+            }
+            $in = [System.IO.File]::OpenRead($Src)
             try {
-                $buf = New-Object byte[] (8MB)
-                while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) {
-                    $out.Write($buf, 0, $r)
-                    $script:copyBytes += $r
-                    Write-ThrottledProgress -Activity '复制 Codex 副本' -Status ("{0:N0}/{1:N0} MB" -f ($script:copyBytes/1MB), ($script:copyTotalBytes/1MB)) -Percent (100.0 * $script:copyBytes / [Math]::Max([long]1, $script:copyTotalBytes))
-                }
-            } finally { $out.Dispose() }
-        } finally { $in.Dispose() }
+                $out = [System.IO.File]::Create($Dst)
+                try {
+                    $buf = New-Object byte[] (8MB)
+                    while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+                        $out.Write($buf, 0, $r)
+                        $script:copyBytes += $r
+                        Write-ThrottledProgress -Activity '复制 Codex 副本' -Status ("{0:N0}/{1:N0} MB" -f ($script:copyBytes/1MB), ($script:copyTotalBytes/1MB)) -Percent (100.0 * $script:copyBytes / [Math]::Max([long]1, $script:copyTotalBytes))
+                    }
+                } finally { $out.Dispose() }
+            } finally { $in.Dispose() }
+            return
+        } catch [System.UnauthorizedAccessException] {
+            if ($attempt -eq 2) {
+                $script:copyFailed += $Src
+                return
+            }
+            Start-Sleep -Milliseconds 500
+        }
     }
 }
 
@@ -188,7 +211,9 @@ function Copy-FileBytes {
 # ---------- 关闭目标目录下的 Codex 进程（路径校验后）----------
 function Stop-CodexProcesses {
     param([string[]]$Roots)
-    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in @('ChatGPT', 'Codex') }
+    # 按可执行文件路径匹配（不按进程名）：副本目录下的 node.exe / codex-computer-use.exe
+    # 等子进程也加载着副本的 DLL，进程名过滤杀不到它们，复制时会因文件被占用而 Access Denied
+    $procs = Get-Process -ErrorAction SilentlyContinue
     $victims = @()
     foreach ($p in $procs) {
         try {
@@ -409,6 +434,12 @@ if ($mode -eq 'store-copy') {
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
         Write-Ok ("复制完成，耗时 {0:N1} 秒" -f $sw.Elapsed.TotalSeconds)
+        if ($script:copyFailed.Count -gt 0) {
+            Write-Err ("有 {0} 个文件复制失败：" -f $script:copyFailed.Count)
+            $script:copyFailed | Select-Object -First 10 | ForEach-Object { Write-Err "    $_" }
+            Write-Warn "常见原因：1) 本地化副本正在后台运行（请完全退出后重试）；2) 杀毒软件/Windows 勒索软件防护（Controlled Folder Access）拦截了 DLL 写入，请临时放行 powershell.exe 后重试。"
+            throw "复制不完整，已中止。处理上述原因后重新运行本安装器即可。"
+        }
     } else {
         Write-Info "副本与 Store 版一致，跳过复制。"
     }

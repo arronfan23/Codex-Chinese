@@ -90,6 +90,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 复制时报 "Access to the path ... is denied" | v1.3.3+ 已自动处理：副本后台进程会被按路径完全关闭；若仍失败，多为杀毒软件/勒索软件防护拦截 DLL 写入，放行 `powershell.exe` 后重试 |
 | 启动报 "该进程没有程序包标识符" | 旧版本已知问题，使用 v1.2.0+ 重跑 `install.cmd`（自动修复旧副本） |
 | 双击后进程一闪而过 | 同上，v1.2.0+ 已适配 asar 完整性校验 |
 | Codex 更新后界面回到英文 | 启动器会自动重打补丁；也可手动重跑 `install.cmd` |

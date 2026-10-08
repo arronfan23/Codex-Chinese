@@ -70,7 +70,8 @@ function Get-StoreAppDir {
 
 function Stop-CodexProcesses {
     param([string[]]$Roots)
-    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in @('ChatGPT', 'Codex') }
+    # 按可执行文件路径匹配：副本目录下的 node.exe 等子进程也需一并关闭
+    $procs = Get-Process -ErrorAction SilentlyContinue
     $victims = @()
     foreach ($p in $procs) {
         try {
