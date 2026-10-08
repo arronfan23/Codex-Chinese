@@ -328,6 +328,25 @@ function Patch-App {
     }
     Write-Ok "补丁完成并已替换 app.asar"
     Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+    # 立即清理本次工作目录（解包文件 + 中间 asar，动辄数百 MB），别等下次运行
+    try { Remove-TreeLong -Path $Work } catch {}
+}
+
+# ---------- 磁盘空间预检 ----------
+# 峰值占用 ≈ 副本本身 + 解包文件 + 新 asar + 替换用 tmp ≈ 副本大小 + 3× asar 大小
+function Test-DiskSpace {
+    param([string]$RootDir, [long]$NeedBytes)
+    try {
+        $driveLetter = [System.IO.Path]::GetPathRoot($RootDir).TrimEnd('\')
+        $free = (New-Object System.IO.DriveInfo($driveLetter)).AvailableFreeSpace
+    } catch { return }  # 取不到就放行，失败时按磁盘错误提示
+    if ($free -lt $NeedBytes) {
+        Write-Err ("磁盘空间不足：{0} 盘剩余 {1:N1} GB，本次安装约需 {2:N1} GB（副本 + 临时解包/重打包文件）。" -f $driveLetter, ($free/1GB), ($NeedBytes/1GB))
+        Write-Warn "解决办法：1) 清理该盘空间后重试；2) 用其他盘的目录作为工作目录，例如："
+        Write-Warn "    setx CODEX_LOCALIZE_ROOT D:\codex-localized   （设置后重开终端再运行）"
+        exit 1
+    }
+    Write-Info ("磁盘空间检查通过：{0} 盘剩余 {1:N1} GB，预计需 {2:N1} GB" -f $driveLetter, ($free/1GB), ($NeedBytes/1GB))
 }
 
 # ---------- 写/读配置 ----------
@@ -399,6 +418,7 @@ Stop-CodexProcesses -Roots @($targetApp)
 
 # 是否需要复制（仅 copy 模式）
 $needCopy = $false
+$asarSizeBytes = [long](Get-Item -LiteralPath (Join-Path $appDir 'resources\app.asar')).Length
 if ($mode -eq 'store-copy') {
     $storeAsar = Join-Path $appDir 'resources\app.asar'
     $copyAsar  = Join-Path $targetApp 'resources\app.asar'
@@ -417,6 +437,14 @@ if ($mode -eq 'store-copy') {
         }
     }
     if ($needCopy) {
+        # 磁盘空间预检：峰值 ≈ 副本大小 + 3× asar 临时文件（解包/重打包/替换）
+        $script:copyTotalBytes = [long]0
+        try {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
+                $script:copyTotalBytes += (New-Object System.IO.FileInfo($f)).Length
+            }
+        } catch {}
+        Test-DiskSpace -RootDir $targetApp -NeedBytes ($script:copyTotalBytes + ($asarSizeBytes * 3) + 200MB)
         if (-not $Silent) {
             $ans = Read-Host "将复制 Codex 到 $targetApp（约 1-2GB，仅首次），继续？[y/N]"
             if ($ans -notmatch '^[yY]') { Write-Warn "已取消"; exit 0 }
@@ -424,12 +452,6 @@ if ($mode -eq 'store-copy') {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Write-Info "复制 Codex 到 $targetApp ..."
         $script:copyBytes = [long]0
-        $script:copyTotalBytes = [long]0
-        try {
-            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
-                $script:copyTotalBytes += (New-Object System.IO.FileInfo($f)).Length
-            }
-        } catch {}
         Copy-TreeBytes -Src $appDir -Dst $targetApp
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
@@ -453,6 +475,10 @@ if (-not $needPatch) {
     # schemaVersion < 3 的副本是旧版工具打的（asar 对齐/完整性有 bug），必须重打
     $needPatch = -not ($cfg -and $cfg.schemaVersion -ge 3 -and $cfg.version -eq $version -and (Test-Path -LiteralPath (Join-Path $targetApp 'ChatGPT.exe')))
 }
+if ($needPatch -and -not $needCopy) {
+    # 不复制但需要重打补丁：仍需 3× asar 的临时空间
+    Test-DiskSpace -RootDir $targetApp -NeedBytes (($asarSizeBytes * 3) + 200MB)
+}
 if ($needPatch -and $cfg -and $cfg.version -eq $version -and $cfg.schemaVersion -lt 3) {
     # 旧版工具打过的副本：当前 asar/exe 已损坏，先从备份还原原版再重新打补丁
     $bakAsar = Join-Path $targetApp 'resources\app.asar.bak'
@@ -469,7 +495,14 @@ if ($needPatch -and $cfg -and $cfg.version -eq $version -and $cfg.schemaVersion 
 if ($needPatch) {
     $workDir = Join-Path $localizeRoot ("work-" + (Get-Date -Format 'yyyyMMddHHmmss'))
     New-Item -ItemType Directory -Force -Path $workDir | Out-Null
-    Patch-App -AppDir $targetApp -Work $workDir
+    try {
+        Patch-App -AppDir $targetApp -Work $workDir
+    } catch {
+        if ($_.Exception.Message -match 'space|空间|磁盘') {
+            Write-Err "磁盘空间不足，补丁写入失败。清理空间后重试，或用 setx CODEX_LOCALIZE_ROOT D:\codex-localized 把工作目录换到其他盘（重开终端生效）。"
+        }
+        throw
+    }
     # 清理旧的 work-*（只清本工具生成的）
     Get-ChildItem -LiteralPath $localizeRoot -Directory -Filter 'work*' -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $workDir } |
