@@ -17,21 +17,56 @@ function ConvertTo-LongPath {
     return '\\?\' + $full
 }
 
-# 进度条节流：Write-Progress 调用开销大，每 150ms 最多刷新一次
+# 进度条节流：每 150ms 最多刷新一次
 $script:progressSw = $null
+
+# CJK 字符在控制台占 2 格，按显示宽度截断，避免行尾换行把画面搞花
+function Get-DisplayWidth {
+    param([string]$s)
+    $w = 0
+    foreach ($ch in $s.ToCharArray()) { $w += $(if ([int]$ch -gt 0x2E7F) { 2 } else { 1 }) }
+    return $w
+}
+
 function Write-ThrottledProgress {
     param([string]$Activity, [string]$Status, [double]$Percent)
     if ($null -eq $script:progressSw) { $script:progressSw = [System.Diagnostics.Stopwatch]::StartNew() }
     if ($script:progressSw.ElapsedMilliseconds -lt 150) { return }
     $script:progressSw.Restart()
     if ($Percent -lt 0) { $Percent = 0 }; if ($Percent -gt 100) { $Percent = 100 }
-    # 进度只是装饰：控制台异常（如 UTF-8 代码页下中文活动名触发 conhost bug）绝不能中断任务
-    try { Write-Progress -Activity $Activity -Status $Status -PercentComplete $Percent } catch {}
+    if ([Console]::IsOutputRedirected) {
+        # 无控制台（管道/重定向）：用进度流，不影响画面
+        try { Write-Progress -Activity $Activity -Status $Status -PercentComplete $Percent } catch {}
+        return
+    }
+    # 有控制台：在光标当前行用 \r 自绘进度条。
+    # 不用 Write-Progress——PS 5.1 会把它画在控制台顶部，覆盖之前输出的横幅。
+    try {
+        $winW = [Console]::WindowWidth
+        $barWidth = 20
+        $filled = [int]($barWidth * $Percent / 100)
+        $bar = ([string][char]0x2588) * $filled + ([string][char]0x2591) * ($barWidth - $filled)
+        $line = ("  {0} [{1}] {2,5:N1}%  {3}" -f $Activity, $bar, $Percent, $Status)
+        # 按显示宽度截断到窗口宽以内（防换行）
+        $maxW = $winW - 2
+        while ((Get-DisplayWidth $line) -gt $maxW -and $line.Length -gt 0) { $line = $line.Substring(0, $line.Length - 1) }
+        $tail = $maxW - (Get-DisplayWidth $line)
+        if ($tail -gt 0) { $line += ' ' * $tail }
+        [Console]::Write("`r" + $line)
+    } catch {}
 }
 
 function Complete-UtilProgress {
     param([string]$Activity)
-    try { Write-Progress -Activity $Activity -Completed } catch {}
+    if ([Console]::IsOutputRedirected) {
+        try { Write-Progress -Activity $Activity -Completed } catch {}
+        return
+    }
+    # 清掉进度行，把光标还给下一行
+    try {
+        $blank = ' ' * ([Math]::Max(10, [Console]::WindowWidth - 2))
+        [Console]::Write("`r" + $blank + "`r`n")
+    } catch {}
 }
 
 # 长路径安全删除目录（Remove-Item 对 >260 字符路径会失败）

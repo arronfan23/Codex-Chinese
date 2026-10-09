@@ -116,6 +116,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.3.7** 进度条改为光标行内自绘（`\r` 回车刷新），不再覆盖顶部 SMO 横幅
+- **v1.3.6** 副本逐文件完整性校验，修复中断残留半成品导致的 chrome_elf.dll 缺失；重拷后强制重打补丁
+- **v1.3.5** 修复控制台 UTF-8 代码页下彩色中文输出触发的 conhost bug（Write-Host 索引越界）
+- **v1.3.4** 磁盘空间预检 + 补丁后即时清理临时目录 + `CODEX_LOCALIZE_ROOT` 换盘支持
+- **v1.3.3** 修复副本后台进程占用 DLL 导致的复制 Access Denied（按路径清理进程）
+- **v1.3.2** 品牌升级：README 横幅、中英双语、特性矩阵
 - **v1.3.1** 桌面快捷方式统一命名为 Codex
 - **v1.3.0** 全程进度条（复制 / 解包 / 校验 / 写盘）、终端横幅、README 完善
 - **v1.2.0** 修复三大启动障碍：asar 完整性校验（exe 哈希同步 + 逐文件 integrity）、asar 头部对齐、
