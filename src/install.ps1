@@ -437,6 +437,31 @@ if ($mode -eq 'store-copy') {
             } catch { $needCopy = $true }
         }
     }
+    if (-not $needCopy) {
+        # 副本完整性校验：asar 一致不代表副本完整（上次复制被中断会留下半成品，
+        # 缺 DLL 时启动报"找不到 chrome_elf.dll 系统错误"）。逐文件比对：源里有的，
+        # 副本里必须存在且大小一致（app.asar 除外——补丁后大小会变，由上面的哈希逻辑负责）。
+        Write-Info "校验副本完整性 ..."
+        try {
+            $dstMap = @{}
+            foreach ($f in [System.IO.Directory]::EnumerateFiles($targetApp, '*', [System.IO.SearchOption]::AllDirectories)) {
+                $fi = New-Object System.IO.FileInfo($f)
+                $dstMap[$fi.FullName.Substring($targetApp.Length).TrimStart('\')] = $fi.Length
+            }
+            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
+                $fi = New-Object System.IO.FileInfo($f)
+                $rel = $fi.FullName.Substring($appDir.Length).TrimStart('\')
+                if ($rel -ieq 'resources\app.asar') { continue }
+                if (-not $dstMap.ContainsKey($rel) -or $dstMap[$rel] -ne $fi.Length) {
+                    Write-Warn "副本不完整：$rel"
+                    $needCopy = $true
+                    break
+                }
+            }
+            if (-not $needCopy) { Write-Info "副本完整性校验通过（$($dstMap.Count) 个文件）。" }
+        } catch { $needCopy = $true }
+        if ($needCopy) { Write-Info "副本缺失或被截断，将重新复制。" }
+    }
     if ($needCopy) {
         # 磁盘空间预检：峰值 ≈ 副本大小 + 3× asar 临时文件（解包/重打包/替换）
         $script:copyTotalBytes = [long]0
@@ -457,6 +482,7 @@ if ($mode -eq 'store-copy') {
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
         Write-Ok ("复制完成，耗时 {0:N1} 秒" -f $sw.Elapsed.TotalSeconds)
+        $script:didCopy = $true
         if ($script:copyFailed.Count -gt 0) {
             Write-Err ("有 {0} 个文件复制失败：" -f $script:copyFailed.Count)
             $script:copyFailed | Select-Object -First 10 | ForEach-Object { Write-Err "    $_" }
@@ -471,6 +497,8 @@ if ($mode -eq 'store-copy') {
 # 是否需要补丁
 $asarPath = Join-Path $targetApp 'resources\app.asar'
 $needPatch = $Force -or (-not (Test-Path -LiteralPath $asarPath))
+# 重新复制后副本是原版（未打补丁），必须重打，不能凭旧配置跳过
+if ($script:didCopy) { $needPatch = $true }
 $cfg = Read-InstallConfig
 if (-not $needPatch) {
     # schemaVersion < 3 的副本是旧版工具打的（asar 对齐/完整性有 bug），必须重打
