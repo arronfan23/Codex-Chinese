@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 setlocal
 if exist "%~dp0launch.ps1" (
   set "PS1=%~dp0launch.ps1"

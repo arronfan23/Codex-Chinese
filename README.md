@@ -90,6 +90,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 报 "索引超出了数组界限"（Write-Host） | 控制台 UTF-8 代码页下彩色中文输出触发的 conhost bug。v1.3.5+ 已移除 cmd 的 `chcp 65001` 并为全部输出/进度条加了兜底 |
 | 报 "There is not enough space on the disk" | C 盘空间不足。安装峰值约需「副本大小 + 3× asar」≈ 3~4GB。v1.3.4+ 会在开始前预检并提示缺口；也可用 `setx CODEX_LOCALIZE_ROOT D:\codex-localized` 把工作目录换到其他盘（重开终端生效） |
 | 复制时报 "Access to the path ... is denied" | v1.3.3+ 已自动处理：副本后台进程会被按路径完全关闭；若仍失败，多为杀毒软件/勒索软件防护拦截 DLL 写入，放行 `powershell.exe` 后重试 |
 | 启动报 "该进程没有程序包标识符" | 旧版本已知问题，使用 v1.2.0+ 重跑 `install.cmd`（自动修复旧副本） |

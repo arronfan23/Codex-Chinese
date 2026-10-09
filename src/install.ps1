@@ -32,10 +32,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Write-Info { param([string]$m) Write-Host "[信息] $m" -ForegroundColor Cyan }
-function Write-Ok   { param([string]$m) Write-Host "[成功] $m" -ForegroundColor Green }
-function Write-Warn { param([string]$m) Write-Host "[警告] $m" -ForegroundColor Yellow }
-function Write-Err  { param([string]$m) Write-Host "[错误] $m" -ForegroundColor Red }
+# 注：PS 5.1 + 控制台 UTF-8 代码页(65001)下，彩色 Write-Host 输出中文在换行处
+# 可能触发 conhost bug 抛 IndexOutOfRangeException——输出失败绝不应中断安装。
+function Write-Info { param([string]$m) try { Write-Host "[信息] $m" -ForegroundColor Cyan } catch { try { [System.Console]::WriteLine("[信息] $m") } catch {} } }
+function Write-Ok   { param([string]$m) try { Write-Host "[成功] $m" -ForegroundColor Green } catch { try { [System.Console]::WriteLine("[成功] $m") } catch {} } }
+function Write-Warn { param([string]$m) try { Write-Host "[警告] $m" -ForegroundColor Yellow } catch { try { [System.Console]::WriteLine("[警告] $m") } catch {} } }
+function Write-Err  { param([string]$m) try { Write-Host "[错误] $m" -ForegroundColor Red } catch { try { [System.Console]::WriteLine("[错误] $m") } catch {} } }
 
 $userProfile = [Environment]::GetFolderPath('UserProfile')
 if ([string]::IsNullOrWhiteSpace($userProfile)) { $userProfile = $env:USERPROFILE }
@@ -362,9 +364,8 @@ function Read-InstallConfig {
 }
 
 # ---------- 主流程 ----------
-Show-SmoBanner
-Write-Host "    Codex 中文本地化工具  |  arronfan23/Codex-Chinese" -ForegroundColor Cyan
-Write-Host ''
+try { Show-SmoBanner } catch {}
+Write-Info "Codex 中文本地化工具  |  arronfan23/Codex-Chinese"
 Write-Log "启动安装器"
 New-Item -ItemType Directory -Force -Path $localizeRoot | Out-Null
 

@@ -25,12 +25,13 @@ function Write-ThrottledProgress {
     if ($script:progressSw.ElapsedMilliseconds -lt 150) { return }
     $script:progressSw.Restart()
     if ($Percent -lt 0) { $Percent = 0 }; if ($Percent -gt 100) { $Percent = 100 }
-    Write-Progress -Activity $Activity -Status $Status -PercentComplete $Percent
+    # 进度只是装饰：控制台异常（如 UTF-8 代码页下中文活动名触发 conhost bug）绝不能中断任务
+    try { Write-Progress -Activity $Activity -Status $Status -PercentComplete $Percent } catch {}
 }
 
 function Complete-UtilProgress {
     param([string]$Activity)
-    Write-Progress -Activity $Activity -Completed
+    try { Write-Progress -Activity $Activity -Completed } catch {}
 }
 
 # 长路径安全删除目录（Remove-Item 对 >260 字符路径会失败）
