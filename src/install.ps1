@@ -164,16 +164,16 @@ function Copy-TreeBytes {
     }
 }
 
-# 单文件复制（带重试）：目标已存在且只读/残留占用时，清属性删除后重试一次；
-# 仍失败则记入 $script:copyFailed，最后统一报错提示（杀毒软件/勒索防护可能拦截 DLL 写入）
+# 单文件复制（带退避重试）：目标只读/被占用（含杀毒软件瞬时扫描锁）时，
+# 清属性后按 0.5s/2s/5s 退避重试；仍失败记入 $script:copyFailed 统一报错
 $script:copyFailed = @()
 function Copy-FileRobust {
     param([string]$Src, [string]$Dst)
-    for ($attempt = 1; $attempt -le 2; $attempt++) {
+    $delays = @(500, 2000, 5000)
+    for ($attempt = 0; $attempt -le $delays.Count; $attempt++) {
         try {
-            if ($attempt -eq 2 -and [System.IO.File]::Exists($Dst)) {
-                [System.IO.File]::SetAttributes($Dst, [System.IO.FileAttributes]::Normal)
-                [System.IO.File]::Delete($Dst)
+            if ($attempt -gt 0 -and [System.IO.File]::Exists($Dst)) {
+                try { [System.IO.File]::SetAttributes($Dst, [System.IO.FileAttributes]::Normal) } catch {}
             }
             $in = [System.IO.File]::OpenRead($Src)
             try {
@@ -188,12 +188,12 @@ function Copy-FileRobust {
                 } finally { $out.Dispose() }
             } finally { $in.Dispose() }
             return
-        } catch [System.UnauthorizedAccessException] {
-            if ($attempt -eq 2) {
+        } catch [System.UnauthorizedAccessException], [System.IO.IOException] {
+            if ($attempt -eq $delays.Count) {
                 $script:copyFailed += $Src
                 return
             }
-            Start-Sleep -Milliseconds 500
+            Start-Sleep -Milliseconds $delays[$attempt]
         }
     }
 }
@@ -230,10 +230,27 @@ function Stop-CodexProcesses {
     Write-Info ("检测到 {0} 个 Codex 进程，准备关闭..." -f $victims.Count)
     foreach ($p in $victims) { try { $p.CloseMainWindow() | Out-Null } catch {} }
     Start-Sleep -Seconds 3
-    foreach ($p in $victims) {
-        try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
+    # 循环强杀并验证清空：句柄释放有延迟，覆盖前必须确保目录下没有活进程
+    $deadline = (Get-Date).AddSeconds(15)
+    do {
+        foreach ($p in $victims) {
+            try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
+        }
+        Start-Sleep -Seconds 2
+        $alive = @()
+        foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                $pp = $p.Path
+                if (-not $pp) { continue }
+                foreach ($r in $Roots) {
+                    if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $alive += $p; break }
+                }
+            } catch {}
+        }
+    } while ($alive.Count -gt 0 -and (Get-Date) -lt $deadline)
+    if ($alive.Count -gt 0) {
+        Write-Warn ("仍有 {0} 个进程未能结束（可能以管理员身份运行）。" -f $alive.Count)
     }
-    Start-Sleep -Seconds 1
 }
 
 # ---------- 补丁（解包 -> 规则库 -> 重打包(重试) -> 原子替换）----------
@@ -497,7 +514,7 @@ if ($mode -eq 'store-copy') {
         if ($script:copyFailed.Count -gt 0) {
             Write-Err ("有 {0} 个文件复制失败：" -f $script:copyFailed.Count)
             $script:copyFailed | Select-Object -First 10 | ForEach-Object { Write-Err "    $_" }
-            Write-Warn "常见原因：1) 本地化副本正在后台运行（请完全退出后重试）；2) 杀毒软件/Windows 勒索软件防护（Controlled Folder Access）拦截了 DLL 写入，请临时放行 powershell.exe 后重试。"
+            Write-Warn "常见原因：1) 本地化副本仍在后台运行（含托盘/管理员身份的进程），请在任务管理器结束所有 ChatGPT/Codex 相关进程后重试；2) 杀毒软件/Windows 勒索软件防护（Controlled Folder Access）拦截了写入，请临时放行 powershell.exe 后重试。"
             throw "复制不完整，已中止。处理上述原因后重新运行本安装器即可。"
         }
     } else {

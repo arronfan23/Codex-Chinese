@@ -87,10 +87,27 @@ function Stop-CodexProcesses {
     Write-Info ("检测到 {0} 个 Codex 进程，准备关闭..." -f $victims.Count)
     foreach ($p in $victims) { try { $p.CloseMainWindow() | Out-Null } catch {} }
     Start-Sleep -Seconds 3
-    foreach ($p in $victims) {
-        try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
+    # 循环强杀并验证清空：覆盖副本前必须确保目录下没有活进程
+    $deadline = (Get-Date).AddSeconds(15)
+    do {
+        foreach ($p in $victims) {
+            try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
+        }
+        Start-Sleep -Seconds 2
+        $alive = @()
+        foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                $pp = $p.Path
+                if (-not $pp) { continue }
+                foreach ($r in $Roots) {
+                    if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $alive += $p; break }
+                }
+            } catch {}
+        }
+    } while ($alive.Count -gt 0 -and (Get-Date) -lt $deadline)
+    if ($alive.Count -gt 0) {
+        Write-Warn ("仍有 {0} 个进程未能结束（可能以管理员身份运行）。" -f $alive.Count)
     }
-    Start-Sleep -Seconds 1
 }
 
 # ---------- 包身份注入启动 ----------
