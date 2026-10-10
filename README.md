@@ -23,6 +23,7 @@
 - 🔄 **中英自由切换** — 设置 → General → Language，随时切回英文，原版图标/入口完全保留
 - 🛡️ **完整性自适应** — 自动适配新版 Electron 的 asar 完整性校验（逐文件 SHA256 + exe 哈希同步）
 - 📦 **包身份注入** — 自动适配 MSIX 程序包标识符检查，Store 版 / 官网 MSIX / 官网安装版通吃
+- ⚡ **秒级重打** — 外科手术式定长补丁：不解包、不重打包，版本升级后重新汉化仅需约 30 秒
 - ♻️ **更新自动跟随** — Codex 升级后启动器自动检测版本变化并重新打补丁，零干预
 
 ## 📸 效果
@@ -90,6 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 每次 Codex 自动更新都要重新汉化，太慢 | v1.4.0+ 已解决：快速通道补丁仅需约 30 秒，更新照收、等待归零。想彻底禁止更新：Win11 可用 `Set-AppxPackageAutoUpdateSettings -DisableUpdates`；Win10 可在 Microsoft Store 设置中全局关闭自动更新（会影响所有应用） |
 | 启动报 "找不到 ...\chrome_elf.dll 系统错误" | 副本是上次中断留下的半成品。v1.3.6+ 会逐文件校验副本完整性，缺文件自动重拷并重打补丁，直接重跑 `install.cmd` 即可 |
 | 报 "索引超出了数组界限"（Write-Host） | 控制台 UTF-8 代码页下彩色中文输出触发的 conhost bug。v1.3.5+ 已移除 cmd 的 `chcp 65001` 并为全部输出/进度条加了兜底 |
 | 报 "There is not enough space on the disk" | C 盘空间不足。安装峰值约需「副本大小 + 3× asar」≈ 3~4GB。v1.3.4+ 会在开始前预检并提示缺口；也可用 `setx CODEX_LOCALIZE_ROOT D:\codex-localized` 把工作目录换到其他盘（重开终端生效） |
@@ -116,6 +118,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.4.0** 外科手术式定长补丁（快速通道）：不解包/不重打包，重新汉化从 ~7 分钟降到 ~30 秒；失败自动回退全量流程
 - **v1.3.10** 进程清理改为循环强杀+验证清空；复制遇文件占用按 0.5/2/5s 退避重试，修复"文件正由另一进程使用"
 - **v1.3.9** 补丁幂等识别：已汉化副本显示"已是目标状态"并跳过重打包（秒过），不再误报关键补丁点未命中
 - **v1.3.8** 进度条空段改用 ASCII `-`（GBK 控制台映射不出 ░ 会显示问号）

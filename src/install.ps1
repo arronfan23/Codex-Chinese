@@ -58,6 +58,7 @@ function Write-Log { param([string]$m) try { Add-Content -LiteralPath $logFile -
 . (Join-Path $scriptDir 'asar-util.ps1')
 . (Join-Path $scriptDir 'patch-rules.ps1')
 . (Join-Path $scriptDir 'smo-banner.ps1')
+. (Join-Path $scriptDir 'surgical-patch.ps1')
 
 # ---------- 带重试的封装 ----------
 function Invoke-WithRetry {
@@ -299,6 +300,36 @@ function Sync-ExeAsarIntegrity {
 function Patch-App {
     param([string]$AppDir, [string]$Work)
     $asar = Join-Path $AppDir 'resources\app.asar'
+    $bak = Join-Path $AppDir 'resources\app.asar.bak'
+
+    # 快速通道：外科手术式定长补丁（不解包、不重打包，秒级）。
+    # 版本升级后的重装从 ~7 分钟降到 ~30 秒；不适用时回退全量流程。
+    if (-not (Test-Path -LiteralPath $bak)) { Copy-FileBytes -Src $asar -Dst $bak }
+    Write-Info "尝试快速通道（外科手术式定长补丁）..."
+    $sgSw = [System.Diagnostics.Stopwatch]::StartNew()
+    $sg = Invoke-SurgicalPatch -AsarPath $asar
+    $sgSw.Stop()
+    if ($sg.Success) {
+        Write-Ok ("快速补丁完成，耗时 {0:N1} 秒" -f $sgSw.Elapsed.TotalSeconds)
+        Write-Info "（getLocale 默认语言回退规则仅全量重打包时应用，本次跳过，不影响中文使用）"
+        Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+        try { Remove-TreeLong -Path $Work } catch {}
+        return
+    }
+    if ($sg.Already) {
+        Write-Ok "副本已是中文补丁状态，仅校验 exe 完整性记录。"
+        Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+        try { Remove-TreeLong -Path $Work } catch {}
+        return
+    }
+    Write-Info ("快速通道不适用（{0}），回退全量解包重打包 ..." -f $sg.Reason)
+    # 外科若在提交阶段异常可能留下半成品：与备份不一致先还原
+    try {
+        $h1 = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash
+        $h2 = (Get-FileHash -LiteralPath $bak -Algorithm SHA256).Hash
+        if ($h1 -ne $h2) { Copy-FileBytes -Src $bak -Dst $asar }
+    } catch {}
+
     $extracted = Join-Path $Work 'asar-extracted'
     Write-Info "解包 app.asar ..."
     Expand-Asar -AsarPath $asar -OutDir $extracted -Force | Out-Null
@@ -582,7 +613,7 @@ Set-Content -LiteralPath $versionFile -Value $version -Encoding UTF8
 Write-Log "安装完成 version=$version"
 
 # 复制启动脚本到 localizeRoot（自包含）
-foreach ($f in @('install.ps1', 'launch.ps1', 'asar-util.ps1', 'patch-rules.ps1', 'smo-banner.ps1')) {
+foreach ($f in @('install.ps1', 'launch.ps1', 'asar-util.ps1', 'patch-rules.ps1', 'smo-banner.ps1', 'surgical-patch.ps1')) {
     $srcF = Join-Path $scriptDir $f
     if (Test-Path -LiteralPath $srcF) {
         Copy-Item -LiteralPath $srcF -Destination (Join-Path $localizeRoot $f) -Force -ErrorAction SilentlyContinue
