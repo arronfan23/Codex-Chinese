@@ -288,11 +288,22 @@ function Patch-App {
 
     Write-Info "应用补丁规则 ..."
     $summary = Invoke-CodexAllPatches -ExtractedDir $extracted -Apply
-    $criticalMiss = @($summary | Where-Object { $_.Critical -and $_.Hits -eq 0 })
+    $totalHits = ($summary | Measure-Object -Property Hits -Sum).Sum
+    $critRule = $summary | Where-Object { $_.Critical } | Select-Object -First 1
+    # 幂等识别：找不到 !1 但发现 !0，说明副本此前已打过补丁（常见于上次安装
+    # 打完补丁后、写配置前中断）——不报警、不重打包，只需同步 exe 哈希并更新配置
+    $alreadyDone = ($totalHits -eq 0 -and $critRule -and $critRule.AlreadyHits -gt 0)
+    $criticalMiss = @($summary | Where-Object { $_.Critical -and $_.Hits -eq 0 -and $_.AlreadyHits -eq 0 })
     foreach ($s in $summary) {
-        $mark = if ($s.Hits -gt 0) { '命中' } else { '未命中' }
+        $mark = if ($s.Hits -gt 0) { '命中' } elseif ($s.AlreadyHits -gt 0) { '已是目标状态' } else { '未命中' }
         Write-Info ("补丁[{0}] {1}（{2}）" -f $mark, $s.Desc, $s.Scope)
         if ($s.Hits -gt 0 -and $s.Files) { Write-Info ("    文件: " + $s.Files) }
+    }
+    if ($alreadyDone) {
+        Write-Ok "副本已是中文补丁状态，跳过重打包，仅校验 exe 完整性记录。"
+        Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+        try { Remove-TreeLong -Path $Work } catch {}
+        return
     }
     if ($criticalMiss.Count -gt 0) {
         Write-Warn "关键补丁点未命中，当前 Codex 版本可能已变更语言机制。"

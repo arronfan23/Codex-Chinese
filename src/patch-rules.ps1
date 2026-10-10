@@ -15,6 +15,7 @@ function Get-CodexPatchRules {
             Scope    = 'webview\assets'
             Pattern  = '.get(`enable_i18n`,!1)'
             Replace  = '.get(`enable_i18n`,!0)'
+            Already  = '.get(`enable_i18n`,!0)'
             Desc     = '开启官方多语言开关 enable_i18n（关键，否则界面永远英文；泛化匹配，兼容变量名混淆变化）'
             Critical = $true
         },
@@ -22,6 +23,7 @@ function Get-CodexPatchRules {
             Scope    = '.vite\build'
             Pattern  = 'getLocale():`en`'
             Replace  = 'getLocale():`zh-CN`'
+            Already  = 'getLocale():`zh-CN`'
             Desc     = 'getLocale 回退语言 en -> zh-CN（26.930.x 实测命中）'
             Critical = $false
         },
@@ -29,6 +31,7 @@ function Get-CodexPatchRules {
             Scope    = '.vite\build'
             Pattern  = 'xte=`en`'
             Replace  = 'xte=`zh-CN`'
+            Already  = 'xte=`zh-CN`'
             Desc     = '默认语言 en -> zh-CN（旧版本兼容）'
             Critical = $false
         }
@@ -45,10 +48,13 @@ function Invoke-CodexPatchRule {
     $scopeDir = Join-Path $ExtractedDir $Rule.Scope
     if (-not (Test-Path -LiteralPath $scopeDir)) { return @{ Hits = 0; Files = @() } }
     $hits = 0
+    $alreadyHits = 0
     $patchedFiles = @()
     foreach ($js in (Get-ChildItem -LiteralPath $scopeDir -Filter '*.js' -File)) {
         $text = [System.IO.File]::ReadAllText($js.FullName)
-        if (-not $text.Contains($Rule.Pattern)) { continue }
+        $hasPattern = $text.Contains($Rule.Pattern)
+        if (-not $hasPattern -and $Rule.Already -and $text.Contains($Rule.Already)) { $alreadyHits++ }
+        if (-not $hasPattern) { continue }
         $hits++
         if ($Apply) {
             $new = $text.Replace($Rule.Pattern, $Rule.Replace)
@@ -60,7 +66,7 @@ function Invoke-CodexPatchRule {
             $patchedFiles += $js.Name
         }
     }
-    return @{ Hits = $hits; Files = $patchedFiles }
+    return @{ Hits = $hits; AlreadyHits = $alreadyHits; Files = $patchedFiles }
 }
 
 # 对全部规则执行补丁，返回汇总结果
@@ -79,6 +85,7 @@ function Invoke-CodexAllPatches {
             Desc     = $r.Desc
             Critical = $r.Critical
             Hits     = $res.Hits
+            AlreadyHits = $res.AlreadyHits
             Files    = ($res.Files -join ', ')
         }
     }
