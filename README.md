@@ -116,6 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.3.8** 进度条空段改用 ASCII `-`（GBK 控制台映射不出 ░ 会显示问号）
 - **v1.3.7** 进度条改为光标行内自绘（`\r` 回车刷新），不再覆盖顶部 SMO 横幅
 - **v1.3.6** 副本逐文件完整性校验，修复中断残留半成品导致的 chrome_elf.dll 缺失；重拷后强制重打补丁
 - **v1.3.5** 修复控制台 UTF-8 代码页下彩色中文输出触发的 conhost bug（Write-Host 索引越界）

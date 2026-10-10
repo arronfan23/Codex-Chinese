@@ -45,7 +45,8 @@ function Write-ThrottledProgress {
         $winW = [Console]::WindowWidth
         $barWidth = 20
         $filled = [int]($barWidth * $Percent / 100)
-        $bar = ([string][char]0x2588) * $filled + ([string][char]0x2591) * ($barWidth - $filled)
+        # 空段用 ASCII '-'：GBK 控制台映射不出 ░ 会显示成问号（█ 在 GBK 中可用）
+        $bar = ([string][char]0x2588) * $filled + '-' * ($barWidth - $filled)
         $line = ("  {0} [{1}] {2,5:N1}%  {3}" -f $Activity, $bar, $Percent, $Status)
         # 按显示宽度截断到窗口宽以内（防换行）
         $maxW = $winW - 2
