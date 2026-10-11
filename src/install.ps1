@@ -170,13 +170,18 @@ function Copy-TreeBytes {
 $script:copyFailed = @()
 function Copy-FileRobust {
     param([string]$Src, [string]$Dst)
-    $delays = @(500, 2000, 5000)
+    # 退避重试：杀毒软件扫描数百 MB 的新文件可能持锁 10~30 秒，总窗口约 67 秒
+    $delays = @(500, 2000, 5000, 10000, 20000, 30000)
     for ($attempt = 0; $attempt -le $delays.Count; $attempt++) {
         try {
             if ($attempt -gt 0 -and [System.IO.File]::Exists($Dst)) {
                 try { [System.IO.File]::SetAttributes($Dst, [System.IO.FileAttributes]::Normal) } catch {}
             }
-            $in = [System.IO.File]::OpenRead($Src)
+            if ($attempt -gt 0) {
+                Write-Warn ("文件被占用或拦截，等待重试（第 {0} 次）：{1}" -f $attempt, ([System.IO.Path]::GetFileName($Dst)))
+            }
+            # 源读取放宽共享：允许杀毒软件等同时读，避免扫描互斥（FileShare = ReadWrite|Delete）
+            $in = New-Object System.IO.FileStream($Src, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]'ReadWrite, Delete'))
             try {
                 $out = [System.IO.File]::Create($Dst)
                 try {

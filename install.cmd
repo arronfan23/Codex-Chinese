@@ -8,6 +8,6 @@ if exist "%~dp0install.ps1" (
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%"
 if errorlevel 1 (
   echo.
-  echo [安装失败，请查看上方错误信息]
+  echo [INSTALL FAILED] See error messages above.
   pause
 )
