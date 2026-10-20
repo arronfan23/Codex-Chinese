@@ -16,6 +16,14 @@
 
 ---
 
+## 🎬 项目介绍视频
+
+约 78 秒了解 Codex-Chinese：内置中文界面、一键安装、中英切换，以及更新自动跟随。1080p 横屏，中文男声配音与字幕。
+
+https://github.com/user-attachments/assets/ca00cfbd-4fa6-4249-ac17-f74320f3058d
+
+[下载 MP4](docs/videos/codex-chinese-intro.mp4) · [下载中文字幕](docs/videos/codex-chinese-intro.zh-CN.srt)
+
 ## ✨ 特性
 
 - 🌏 **官方语言包** — 不做第三方翻译，直接开启 Codex 自带的 60+ 语言（含完整简体中文），翻译质量官方保障
