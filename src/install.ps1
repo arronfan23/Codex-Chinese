@@ -27,6 +27,7 @@ param(
     [switch]$Silent,
     [switch]$DryRun,
     [switch]$Force,
+    [switch]$FullRepack,  # 跳过快速通道，强制全量解包重打包（诊断用）
     [string]$Root   # 本地化副本根目录（默认 %USERPROFILE%\.codex\codex-localized；可用环境变量 CODEX_LOCALIZE_ROOT 覆盖）
 )
 
@@ -185,7 +186,7 @@ function Copy-FileRobust {
             try {
                 $out = [System.IO.File]::Create($Dst)
                 try {
-                    $buf = New-Object byte[] (8MB)
+                    $buf = Get-IoBuffer
                     while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) {
                         $out.Write($buf, 0, $r)
                         $script:copyBytes += $r
@@ -210,7 +211,7 @@ function Copy-FileBytes {
     try {
         $out = [System.IO.File]::Create($Dst)
         try {
-            $buf = New-Object byte[] (8MB)
+            $buf = Get-IoBuffer
             while (($r = $in.Read($buf, 0, $buf.Length)) -gt 0) { $out.Write($buf, 0, $r) }
         } finally { $out.Dispose() }
     } finally { $in.Dispose() }
@@ -303,37 +304,39 @@ function Sync-ExeAsarIntegrity {
 }
 
 function Patch-App {
-    param([string]$AppDir, [string]$Work)
+    param([string]$AppDir, [string]$Work, [switch]$NoSurgical)
     $asar = Join-Path $AppDir 'resources\app.asar'
     $bak = Join-Path $AppDir 'resources\app.asar.bak'
 
     # 快速通道：外科手术式定长补丁（不解包、不重打包，秒级）。
     # 版本升级后的重装从 ~7 分钟降到 ~30 秒；不适用时回退全量流程。
     if (-not (Test-Path -LiteralPath $bak)) { Copy-FileBytes -Src $asar -Dst $bak }
-    Write-Info "尝试快速通道（外科手术式定长补丁）..."
-    $sgSw = [System.Diagnostics.Stopwatch]::StartNew()
-    $sg = Invoke-SurgicalPatch -AsarPath $asar
-    $sgSw.Stop()
-    if ($sg.Success) {
-        Write-Ok ("快速补丁完成，耗时 {0:N1} 秒" -f $sgSw.Elapsed.TotalSeconds)
-        Write-Info "（getLocale 默认语言回退规则仅全量重打包时应用，本次跳过，不影响中文使用）"
-        Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
-        try { Remove-TreeLong -Path $Work } catch {}
-        return
+    if (-not $NoSurgical) {
+        Write-Info "尝试快速通道（外科手术式定长补丁）..."
+        $sgSw = [System.Diagnostics.Stopwatch]::StartNew()
+        $sg = Invoke-SurgicalPatch -AsarPath $asar
+        $sgSw.Stop()
+        if ($sg.Success) {
+            Write-Ok ("快速补丁完成，耗时 {0:N1} 秒" -f $sgSw.Elapsed.TotalSeconds)
+            Write-Info "（getLocale 默认语言回退规则仅全量重打包时应用，本次跳过，不影响中文使用）"
+            Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+            try { Remove-TreeLong -Path $Work } catch {}
+            return
+        }
+        if ($sg.Already) {
+            Write-Ok "副本已是中文补丁状态，仅校验 exe 完整性记录。"
+            Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
+            try { Remove-TreeLong -Path $Work } catch {}
+            return
+        }
+        Write-Info ("快速通道不适用（{0}），回退全量解包重打包 ..." -f $sg.Reason)
+        # 外科若在提交阶段异常可能留下半成品：与备份不一致先还原
+        try {
+            $h1 = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash
+            $h2 = (Get-FileHash -LiteralPath $bak -Algorithm SHA256).Hash
+            if ($h1 -ne $h2) { Copy-FileBytes -Src $bak -Dst $asar }
+        } catch {}
     }
-    if ($sg.Already) {
-        Write-Ok "副本已是中文补丁状态，仅校验 exe 完整性记录。"
-        Sync-ExeAsarIntegrity -AppDir $AppDir -AsarPath $asar
-        try { Remove-TreeLong -Path $Work } catch {}
-        return
-    }
-    Write-Info ("快速通道不适用（{0}），回退全量解包重打包 ..." -f $sg.Reason)
-    # 外科若在提交阶段异常可能留下半成品：与备份不一致先还原
-    try {
-        $h1 = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash
-        $h2 = (Get-FileHash -LiteralPath $bak -Algorithm SHA256).Hash
-        if ($h1 -ne $h2) { Copy-FileBytes -Src $bak -Dst $asar }
-    } catch {}
 
     $extracted = Join-Path $Work 'asar-extracted'
     Write-Info "解包 app.asar ..."
@@ -589,7 +592,7 @@ if ($needPatch) {
     $workDir = Join-Path $localizeRoot ("work-" + (Get-Date -Format 'yyyyMMddHHmmss'))
     New-Item -ItemType Directory -Force -Path $workDir | Out-Null
     try {
-        Patch-App -AppDir $targetApp -Work $workDir
+        Patch-App -AppDir $targetApp -Work $workDir -NoSurgical:$FullRepack
     } catch {
         if ($_.Exception.Message -match 'space|空间|磁盘') {
             Write-Err "磁盘空间不足，补丁写入失败。清理空间后重试，或用 setx CODEX_LOCALIZE_ROOT D:\codex-localized 把工作目录换到其他盘（重开终端生效）。"

@@ -20,6 +20,21 @@ function ConvertTo-LongPath {
 # 进度条节流：每 150ms 最多刷新一次
 $script:progressSw = $null
 
+# 共享 IO 缓冲区：逐文件新建 8MB 数组会导致大对象堆碎片化，
+# 在内存紧张/32 位进程里直接 OutOfMemoryException。全局共享一个，失败自动降级。
+# 注意：返回时必须用 , 前缀防 PowerShell 把 byte[] 在管道里拆成 800 万个元素。
+$script:sharedBuf8 = $null
+function Get-IoBuffer {
+    if ($null -eq $script:sharedBuf8) {
+        try { $script:sharedBuf8 = New-Object byte[] (8MB) }
+        catch {
+            try { $script:sharedBuf8 = New-Object byte[] (1MB) }
+            catch { $script:sharedBuf8 = New-Object byte[] (64KB) }
+        }
+    }
+    return ,$script:sharedBuf8
+}
+
 # CJK 字符在控制台占 2 格，按显示宽度截断，避免行尾换行把画面搞花
 function Get-DisplayWidth {
     param([string]$s)
@@ -112,17 +127,19 @@ function Get-FileIntegrity {
     $fs = [System.IO.File]::OpenRead((ConvertTo-LongPath $Path))
     try {
         $blocks = New-Object System.Collections.ArrayList
-        $buf = New-Object byte[] ($blockSize)
+        # 共享 4MB 块缓冲，避免逐文件分配导致 LOH 碎片化
+        if ($null -eq $script:sharedBuf4) { $script:sharedBuf4 = New-Object byte[] ($blockSize) }
+        $buf = $script:sharedBuf4
+        $bsha = [System.Security.Cryptography.SHA256]::Create()
         while (($r = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
             $sha.TransformBlock($buf, 0, $r, $buf, 0) | Out-Null
-            $bsha = [System.Security.Cryptography.SHA256]::Create()
-            try {
-                $bh = $bsha.ComputeHash($buf, 0, $r)
-                [void]$blocks.Add((-join ($bh | ForEach-Object { $_.ToString('x2') })))
-            } finally { $bsha.Dispose() }
+            $bsha.Initialize() | Out-Null
+            $bh = $bsha.ComputeHash($buf, 0, $r)
+            [void]$blocks.Add((-join ($bh | ForEach-Object { $_.ToString('x2') })))
         }
         $sha.TransformFinalBlock((New-Object byte[] 0), 0, 0) | Out-Null
         $whole = -join ($sha.Hash | ForEach-Object { $_.ToString('x2') })
+        $bsha.Dispose()
     } finally { $fs.Dispose(); $sha.Dispose() }
     return [ordered]@{ algorithm = 'SHA256'; hash = $whole; blockSize = $blockSize; blocks = @($blocks.ToArray()) }
 }
@@ -176,7 +193,7 @@ function Expand-Asar {
             $Stream.Seek($DataOffset + $offset, [System.IO.SeekOrigin]::Begin) | Out-Null
             $out = [System.IO.File]::Create((ConvertTo-LongPath $outPath))
             try {
-                $buf = New-Object byte[] (8MB)
+                $buf = Get-IoBuffer
                 $remaining = $size
                 while ($remaining -gt 0) {
                     $toRead = [int][Math]::Min($remaining, $buf.Length)
@@ -322,7 +339,7 @@ function New-Asar {
             if (-not $script:unpackedSet.ContainsKey($Rel)) {
                 $in = [System.IO.File]::OpenRead((ConvertTo-LongPath $Path))
                     try {
-                        $buf = New-Object byte[] (8MB)
+                        $buf = Get-IoBuffer
                         while (($r = $in.Read($buf,0,$buf.Length)) -gt 0) {
                             $Writer.Write($buf,0,$r)
                             $script:writtenBytes += $r
