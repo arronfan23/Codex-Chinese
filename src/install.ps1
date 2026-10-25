@@ -627,7 +627,8 @@ foreach ($f in @('install.ps1', 'launch.ps1', 'asar-util.ps1', 'patch-rules.ps1'
         Copy-Item -LiteralPath $srcF -Destination (Join-Path $localizeRoot $f) -Force -ErrorAction SilentlyContinue
     }
 }
-$cmdContent = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0launch.ps1`"`r`nif errorlevel 1 pause`r`n"
+# 生成的 launch.cmd 与仓库版一致：优先完整路径，不依赖 PATH
+$cmdContent = "@echo off`r`nsetlocal`r`nset `"PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`"`r`nif not exist `"%PS%`" set `"PS=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe`"`r`nif not exist `"%PS%`" set `"PS=powershell.exe`"`r`n`"%PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0launch.ps1`"`r`nif errorlevel 1 pause`r`n"
 Set-Content -LiteralPath (Join-Path $localizeRoot 'launch.cmd') -Value $cmdContent -Encoding ASCII
 
 # 桌面快捷方式（新建，不替换原有）
