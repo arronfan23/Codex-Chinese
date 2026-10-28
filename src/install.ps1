@@ -169,6 +169,7 @@ function Copy-TreeBytes {
 # 单文件复制（带退避重试）：目标只读/被占用（含杀毒软件瞬时扫描锁）时，
 # 清属性后按 0.5s/2s/5s 退避重试；仍失败记入 $script:copyFailed 统一报错
 $script:copyFailed = @()
+$script:copySkipped = @()
 function Copy-FileRobust {
     param([string]$Src, [string]$Dst)
     # 退避重试：杀毒软件扫描数百 MB 的新文件可能持锁 10~30 秒，总窗口约 67 秒
@@ -197,6 +198,21 @@ function Copy-FileRobust {
             return
         } catch [System.UnauthorizedAccessException], [System.IO.IOException] {
             if ($attempt -eq $delays.Count) {
+                # VC 运行库被安全软件（DLL 劫持防护类策略）持续拦截时：
+                # System32 已有同名运行库则跳过，应用会自动回退加载系统副本
+                $leaf = [System.IO.Path]::GetFileName($Dst).ToLowerInvariant()
+                if ($leaf -in @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll')) {
+                    $sysDll = Join-Path $env:SystemRoot ("System32\" + $leaf)
+                    if (Test-Path -LiteralPath $sysDll) {
+                        # 失败时可能留下 0 字节占位文件，必须删掉，否则会挡住 System32 回退加载
+                        if ([System.IO.File]::Exists($Dst) -and (New-Object System.IO.FileInfo($Dst)).Length -eq 0) {
+                            try { [System.IO.File]::SetAttributes($Dst, [System.IO.FileAttributes]::Normal); [System.IO.File]::Delete($Dst) } catch {}
+                        }
+                        Write-Warn ("{0} 被拦截无法写入，系统已有同名运行库，跳过（将使用系统副本）。" -f $leaf)
+                        $script:copySkipped += $Dst
+                        return
+                    }
+                }
                 $script:copyFailed += $Src
                 return
             }
@@ -519,6 +535,11 @@ if ($mode -eq 'store-copy') {
                 $fi = New-Object System.IO.FileInfo($f)
                 $rel = $fi.FullName.Substring($appDir.Length).TrimStart('\')
                 if ($rel -ieq 'resources\app.asar') { continue }
+                # VC 运行库若被安全软件拦截跳过（System32 有系统副本），不算缺失
+                $leafName = $fi.Name.ToLowerInvariant()
+                if ($leafName -in @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll')) {
+                    if (Test-Path -LiteralPath (Join-Path $env:SystemRoot ("System32\" + $leafName))) { continue }
+                }
                 if (-not $dstMap.ContainsKey($rel) -or $dstMap[$rel] -ne $fi.Length) {
                     Write-Warn "副本不完整：$rel"
                     $needCopy = $true
@@ -549,11 +570,14 @@ if ($mode -eq 'store-copy') {
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
         Write-Ok ("复制完成，耗时 {0:N1} 秒" -f $sw.Elapsed.TotalSeconds)
+        if ($script:copySkipped.Count -gt 0) {
+            Write-Warn ("其中 {0} 个 VC 运行库文件被安全软件拦截，已跳过（将使用 System32 的系统副本）。" -f $script:copySkipped.Count)
+        }
         $script:didCopy = $true
         if ($script:copyFailed.Count -gt 0) {
             Write-Err ("有 {0} 个文件复制失败：" -f $script:copyFailed.Count)
             $script:copyFailed | Select-Object -First 10 | ForEach-Object { Write-Err "    $_" }
-            Write-Warn "常见原因：1) 本地化副本仍在后台运行（含托盘/管理员身份的进程），请在任务管理器结束所有 ChatGPT/Codex 相关进程后重试；2) 杀毒软件/Windows 勒索软件防护（Controlled Folder Access）拦截了写入，请临时放行 powershell.exe 后重试。"
+            Write-Warn "常见原因：1) 本地化副本仍在后台运行（含托盘/管理员身份的进程），请在任务管理器结束相关进程后重试；2) 杀毒软件的『DLL 劫持防护』或 Windows 勒索软件防护拦截了写入，请将 powershell.exe 加入白名单后重试。"
             throw "复制不完整，已中止。处理上述原因后重新运行本安装器即可。"
         }
     } else {

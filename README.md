@@ -126,6 +126,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.4.5** VC 运行库 DLL 被安全软件持续拦截时自动跳过并使用系统副本（不再整轮重试后中止安装）
 - **v1.4.4** 同步修复安装器现场生成的 launch.cmd（桌面快捷方式实际入口）的 PowerShell 路径解析
 - **v1.4.3** 启动器改用 PowerShell 完整路径，不再依赖 PATH（修复"'powershell' 不是内部或外部命令"）
 - **v1.4.2** 修复复制/解包/打包逐文件新建 8MB 缓冲区导致的内存碎片 OOM；改共享缓冲区后全流程提速约 4 倍
