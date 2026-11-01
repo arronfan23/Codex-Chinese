@@ -6,6 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg)]()
+[![macOS](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](https://github.com/arronfan23/Codex-Chinese-macOS)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE.svg)]()
 [![Release](https://img.shields.io/github/v/release/arronfan23/Codex-Chinese?color=10D97E)](https://github.com/arronfan23/Codex-Chinese/releases/latest)
 [![Stars](https://img.shields.io/github/stars/arronfan23/Codex-Chinese?style=social)](https://github.com/arronfan23/Codex-Chinese/stargazers)
@@ -60,6 +61,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\install.ps1
 
 > 还没装 Codex？[Releases](https://github.com/arronfan23/Codex-Chinese/releases) 中附带了官方
 > MSIX 安装包（26.915.4065.0，已实测兼容），也可从 Microsoft Store / 官网安装任意版本。
+
+## 🍎 macOS 用户
+
+macOS 版汉化工具已发布：**[Codex-Chinese-macOS](https://github.com/arronfan23/Codex-Chinese-macOS)** ——
+图形启动器一键汉化并启动，Apple 芯片 / Intel 通用，DMG 下载即用；同样完全离线、不修改原版、可随时卸载。
 
 ## 🔧 原理
 
