@@ -110,42 +110,6 @@ function Stop-CodexProcesses {
     }
 }
 
-# ---------- 包身份注入启动 ----------
-# MSIX 打包的 Codex（Store 版 / 官网 MSIX）要求进程必须有程序包标识符，
-# 复制出来的副本直接运行会弹 "ChatGPT failed to start / 该进程没有程序包标识符"。
-# 用 Invoke-CommandInDesktopPackage 借已安装包的身份启动副本即可绕过（无需管理员）。
-function Get-CodexPackageInfo {
-    try {
-        $pkg = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'OpenAI.*Codex|^Codex$' } | Select-Object -First 1
-        if (-not $pkg) { return $null }
-        $appId = $null
-        try {
-            $manifest = Get-AppxPackageManifest $pkg
-            $appId = @($manifest.Package.Applications.Application)[0].Id
-        } catch {}
-        if (-not $appId) { $appId = 'App' }
-        return @{ Pfn = $pkg.PackageFamilyName; AppId = $appId }
-    } catch { return $null }
-}
-
-function Start-CodexWithIdentity {
-    param([string]$ExePath, [string]$ArgLine)
-    $info = Get-CodexPackageInfo
-    if (-not $info) { return $false }
-    if (-not (Get-Command Invoke-CommandInDesktopPackage -ErrorAction SilentlyContinue)) { return $false }
-    try {
-        if ($ArgLine) {
-            Invoke-CommandInDesktopPackage -PackageFamilyName $info.Pfn -AppId $info.AppId -Command $ExePath -Args $ArgLine
-        } else {
-            Invoke-CommandInDesktopPackage -PackageFamilyName $info.Pfn -AppId $info.AppId -Command $ExePath
-        }
-        return $true
-    } catch {
-        Write-Warn "包身份注入启动失败（$($_.Exception.Message)），尝试直接启动..."
-        return $false
-    }
-}
-
 # ---------- 主流程 ----------
 try { Show-SmoBanner } catch {}
 Write-Info "Codex 中文本地化版启动器  |  arronfan23/Codex-Chinese"
@@ -228,11 +192,11 @@ if (-not (Test-Path -LiteralPath $exePath)) { Write-Err "启动文件缺失：$e
 $argLine = ''
 if ($lang) { $argLine = "--lang=$lang" }
 Write-Info "启动：$exePath $argLine"
-$started = Start-CodexWithIdentity -ExePath $exePath -ArgLine $argLine
-if (-not $started) {
-    $args = @()
-    if ($argLine) { $args += $argLine }
-    Start-Process -FilePath $exePath -ArgumentList $args
-}
+# 直接启动即可：asar 修复正确后副本不需要任何包身份注入。
+# （早期"该进程没有程序包标识符"弹窗实为 asar 损坏的连带症状；
+#  Invoke-CommandInDesktopPackage 在部分机器上会 AccessViolation 原生崩溃，已弃用）
+$args = @()
+if ($argLine) { $args += $argLine }
+Start-Process -FilePath $exePath -ArgumentList $args
 Write-Ok "已启动。语言可在 设置→General→Language 自由切换。"
 exit 0

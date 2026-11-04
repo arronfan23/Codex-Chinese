@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/ca00cfbd-4fa6-4249-ac17-f74320f3058d
 - 🖱️ **一键安装** — 双击 `install.cmd`，全程进度条可视化，无需管理员权限，不碰原版安装
 - 🔄 **中英自由切换** — 设置 → General → Language，随时切回英文，原版图标/入口完全保留
 - 🛡️ **完整性自适应** — 自动适配新版 Electron 的 asar 完整性校验（逐文件 SHA256 + exe 哈希同步）
-- 📦 **包身份注入** — 自动适配 MSIX 程序包标识符检查，Store 版 / 官网 MSIX / 官网安装版通吃
+- 🚀 **直接启动** — 副本开箱即用，无需注入、无需提权，Store 版 / 官网 MSIX / 官网安装版通吃
 - ⚡ **秒级重打** — 外科手术式定长补丁：不解包、不重打包，版本升级后重新汉化仅需约 30 秒
 - ♻️ **更新自动跟随** — Codex 升级后启动器自动检测版本变化并重新打补丁，零干预
 
@@ -82,8 +82,8 @@ Store/MSIX 版（受保护目录）        官网安装版（可写目录）
                           │
         ┌─────────────────┼──────────────────────────┐
         ▼                 ▼                          ▼
-  默认语言回退       同步 exe 内嵌的              启动时借用已安装包的
-  en → zh-CN       asar 完整性哈希              MSIX 包身份启动副本
+  默认语言回退       同步 exe 内嵌的              直接启动副本
+  en → zh-CN       asar 完整性哈希              （无需注入/提权）
 ```
 
 补丁按**内容**匹配（不依赖带哈希的文件名），混淆变量名随版本变化也能命中；
@@ -106,6 +106,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 启动时报 AccessViolation（Invoke-CommandInDesktopPackage） | 该原生接口在部分机器上会崩溃，v1.5.1+ 已弃用身份注入，改为直接启动 |
 | 每次 Codex 自动更新都要重新汉化，太慢 | v1.4.0+ 已解决：快速通道补丁仅需约 30 秒，更新照收、等待归零。想彻底禁止更新：Win11 可用 `Set-AppxPackageAutoUpdateSettings -DisableUpdates`；Win10 可在 Microsoft Store 设置中全局关闭自动更新（会影响所有应用） |
 | 启动报 "找不到 ...\chrome_elf.dll 系统错误" | 副本是上次中断留下的半成品。v1.3.6+ 会逐文件校验副本完整性，缺文件自动重拷并重打补丁，直接重跑 `install.cmd` 即可 |
 | 报 "索引超出了数组界限"（Write-Host） | 控制台 UTF-8 代码页下彩色中文输出触发的 conhost bug。v1.3.5+ 已移除 cmd 的 `chcp 65001` 并为全部输出/进度条加了兜底 |
@@ -133,6 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.5.1** 弃用 Invoke-CommandInDesktopPackage 身份注入（部分机器原生崩溃 AccessViolation），改为直接启动
 - **v1.5.0** 适配 26.1029 的双引号字面量形态（`.get("enable_i18n",!1)`），两种形态全渠道支持
 - **v1.4.5** VC 运行库 DLL 被安全软件持续拦截时自动跳过并使用系统副本（不再整轮重试后中止安装）
 - **v1.4.4** 同步修复安装器现场生成的 launch.cmd（桌面快捷方式实际入口）的 PowerShell 路径解析
