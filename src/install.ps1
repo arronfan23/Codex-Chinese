@@ -361,11 +361,14 @@ function Patch-App {
     Write-Info "应用补丁规则 ..."
     $summary = Invoke-CodexAllPatches -ExtractedDir $extracted -Apply
     $totalHits = ($summary | Measure-Object -Property Hits -Sum).Sum
-    $critRule = $summary | Where-Object { $_.Critical } | Select-Object -First 1
+    $critAlready = @($summary | Where-Object { $_.Critical -and $_.AlreadyHits -gt 0 }).Count -gt 0
     # 幂等识别：找不到 !1 但发现 !0，说明副本此前已打过补丁（常见于上次安装
     # 打完补丁后、写配置前中断）——不报警、不重打包，只需同步 exe 哈希并更新配置
-    $alreadyDone = ($totalHits -eq 0 -and $critRule -and $critRule.AlreadyHits -gt 0)
-    $criticalMiss = @($summary | Where-Object { $_.Critical -and $_.Hits -eq 0 -and $_.AlreadyHits -eq 0 })
+    $alreadyDone = ($totalHits -eq 0 -and $critAlready)
+    # 关键规则按"组"判定：任一形态命中/已开启即视为成功（反引号与双引号形态并存）
+    $critOk = @($summary | Where-Object { $_.Critical -and ($_.Hits -gt 0 -or $_.AlreadyHits -gt 0) }).Count -gt 0
+    $criticalMiss = @()
+    if (-not $critOk) { $criticalMiss = @($summary | Where-Object { $_.Critical }) }
     foreach ($s in $summary) {
         $mark = if ($s.Hits -gt 0) { '命中' } elseif ($s.AlreadyHits -gt 0) { '已是目标状态' } else { '未命中' }
         Write-Info ("补丁[{0}] {1}（{2}）" -f $mark, $s.Desc, $s.Scope)

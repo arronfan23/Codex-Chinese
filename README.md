@@ -41,7 +41,8 @@ https://github.com/user-attachments/assets/ca00cfbd-4fa6-4249-ac17-f74320f3058d
 <img src="docs/images/ui-zh.png" alt="中文界面实测" width="85%">
 </div>
 
-已实测版本：**26.930.7945.0**（Microsoft Store）、**26.915.4065.0**（官网 MSIX 安装包）。
+已实测版本：**26.930.7945.0**、**26.1002.7124.0**、**26.1007.2314.0**（Microsoft Store）、
+**26.915.4065.0**、**26.1029.7803.0**（官网 MSIX 安装包）。26.1029 起字符串字面量改为双引号形态，已适配。
 
 ## 🚀 快速开始
 
@@ -132,6 +133,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.5.0** 适配 26.1029 的双引号字面量形态（`.get("enable_i18n",!1)`），两种形态全渠道支持
 - **v1.4.5** VC 运行库 DLL 被安全软件持续拦截时自动跳过并使用系统副本（不再整轮重试后中止安装）
 - **v1.4.4** 同步修复安装器现场生成的 launch.cmd（桌面快捷方式实际入口）的 PowerShell 路径解析
 - **v1.4.3** 启动器改用 PowerShell 完整路径，不再依赖 PATH（修复"'powershell' 不是内部或外部命令"）

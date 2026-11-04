@@ -23,6 +23,12 @@ function Get-SurgicalRules {
             Already  = [System.Text.Encoding]::UTF8.GetBytes('.get(`enable_i18n`,!0)')
             Desc     = '开启官方多语言开关 enable_i18n'
         }
+        ,@{
+            Pattern  = [System.Text.Encoding]::UTF8.GetBytes('.get("enable_i18n",!1)')
+            Replace  = [System.Text.Encoding]::UTF8.GetBytes('.get("enable_i18n",!0)')
+            Already  = [System.Text.Encoding]::UTF8.GetBytes('.get("enable_i18n",!0)')
+            Desc     = '开启官方多语言开关 enable_i18n（双引号形态，26.1029+）'
+        }
     )
 }
 
@@ -95,15 +101,11 @@ function Invoke-SurgicalPatch {
         # ---- 3) 逐规则扫描数据区 ----
         $fileLen = $fs.Length
         $dirtyFiles = @{}   # entry.Index -> 新内容 buffer
+        $totalHits = 0
         foreach ($r in $rules) {
             $hits = Find-AllOffsets -Stream $fs -Needle $r.Pattern -StartAt $dataOffset -EndAt $fileLen
-            if ($hits.Count -eq 0) {
-                # 关键模式未命中：若"目标形态"存在，说明此前已打过补丁（幂等场景，秒回）
-                if ($r.Already -and (Find-AllOffsets -Stream $fs -Needle $r.Already -StartAt $dataOffset -EndAt $fileLen).Count -gt 0) {
-                    return @{ Success = $false; Already = $true; Reason = '已是补丁状态' }
-                }
-                return @{ Success = $false; Already = $false; Reason = '模式未命中' }
-            }
+            if ($hits.Count -eq 0) { continue }  # 该形态未命中，试下一种形态
+            $totalHits += $hits.Count
             foreach ($absPos in $hits) {
                 $rel = $absPos - $dataOffset
                 $entry = $null
@@ -126,6 +128,15 @@ function Invoke-SurgicalPatch {
                 # 原地覆写（定长）
                 [Array]::Copy($r.Replace, 0, $dirtyFiles[$key].Content, ($rel - $entry.Offset), $r.Replace.Length)
             }
+        }
+        if ($totalHits -eq 0) {
+            # 所有形态均未命中：若任一"目标形态"存在，说明此前已打过补丁（幂等，秒回）
+            foreach ($r in $rules) {
+                if ($r.Already -and (Find-AllOffsets -Stream $fs -Needle $r.Already -StartAt $dataOffset -EndAt $fileLen).Count -gt 0) {
+                    return @{ Success = $false; Already = $true; Reason = '已是补丁状态' }
+                }
+            }
+            return @{ Success = $false; Already = $false; Reason = '模式未命中' }
         }
         if ($dirtyFiles.Count -eq 0) { return @{ Success = $false; Already = $false; Reason = '无可补丁文件' } }
 

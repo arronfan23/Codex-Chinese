@@ -20,11 +20,27 @@ function Get-CodexPatchRules {
             Critical = $true
         },
         @{
+            Scope    = 'webview\assets'
+            Pattern  = '.get("enable_i18n",!1)'
+            Replace  = '.get("enable_i18n",!0)'
+            Already  = '.get("enable_i18n",!0)'
+            Desc     = '开启官方多语言开关 enable_i18n（双引号形态，26.1029+）'
+            Critical = $true
+        },
+        @{
             Scope    = '.vite\build'
             Pattern  = 'getLocale():`en`'
             Replace  = 'getLocale():`zh-CN`'
             Already  = 'getLocale():`zh-CN`'
             Desc     = 'getLocale 回退语言 en -> zh-CN（26.930.x 实测命中）'
+            Critical = $false
+        },
+        @{
+            Scope    = '.vite\build'
+            Pattern  = 'getLocale():"en"'
+            Replace  = 'getLocale():"zh-CN"'
+            Already  = 'getLocale():"zh-CN"'
+            Desc     = 'getLocale 回退语言 en -> zh-CN（双引号形态，26.1027+）'
             Critical = $false
         },
         @{
