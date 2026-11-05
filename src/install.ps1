@@ -155,13 +155,17 @@ function Test-DirWritable {
 # ---------- 字节流递归复制（EFS 安全）----------
 function Copy-TreeBytes {
     param([string]$Src, [string]$Dst)
-    if (-not (Test-Path -LiteralPath $Dst)) { New-Item -ItemType Directory -Path $Dst -Force | Out-Null }
+    # 全程 \\?\ 长路径形式：WindowsApps 内 pnpm-store 等深层目录会超过 260 字符
+    $Src = ConvertTo-LongPath $Src
+    $Dst = ConvertTo-LongPath $Dst
+    if (-not [System.IO.Directory]::Exists($Dst)) { [System.IO.Directory]::CreateDirectory($Dst) | Out-Null }
     foreach ($dir in [System.IO.Directory]::EnumerateDirectories($Src)) {
-        Copy-TreeBytes -Src $dir -Dst (Join-Path $Dst ([System.IO.Path]::GetFileName($dir)))
+        # 注意用字符串拼接而非 Join-Path：\\?\ 前缀不是合法 PowerShell 驱动器
+        Copy-TreeBytes -Src $dir -Dst ($Dst + '\' + [System.IO.Path]::GetFileName($dir))
     }
     foreach ($file in [System.IO.Directory]::EnumerateFiles($Src)) {
         $name = [System.IO.Path]::GetFileName($file)
-        $target = Join-Path $Dst $name
+        $target = $Dst + '\' + $name
         Copy-FileRobust -Src $file -Dst $target
     }
 }
@@ -172,6 +176,8 @@ $script:copyFailed = @()
 $script:copySkipped = @()
 function Copy-FileRobust {
     param([string]$Src, [string]$Dst)
+    $Src = ConvertTo-LongPath $Src
+    $Dst = ConvertTo-LongPath $Dst
     # 退避重试：杀毒软件扫描数百 MB 的新文件可能持锁 10~30 秒，总窗口约 67 秒
     $delays = @(500, 2000, 5000, 10000, 20000, 30000)
     for ($attempt = 0; $attempt -le $delays.Count; $attempt++) {
@@ -530,13 +536,17 @@ if ($mode -eq 'store-copy') {
         Write-Info "校验副本完整性 ..."
         try {
             $dstMap = @{}
-            foreach ($f in [System.IO.Directory]::EnumerateFiles($targetApp, '*', [System.IO.SearchOption]::AllDirectories)) {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $targetApp), '*', [System.IO.SearchOption]::AllDirectories)) {
                 $fi = New-Object System.IO.FileInfo($f)
-                $dstMap[$fi.FullName.Substring($targetApp.Length).TrimStart('\')] = $fi.Length
+                $fp = $fi.FullName
+                if ($fp.StartsWith('\\?\')) { $fp = $fp.Substring(4) }
+                $dstMap[$fp.Substring($targetApp.Length).TrimStart('\')] = $fi.Length
             }
-            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $appDir), '*', [System.IO.SearchOption]::AllDirectories)) {
                 $fi = New-Object System.IO.FileInfo($f)
-                $rel = $fi.FullName.Substring($appDir.Length).TrimStart('\')
+                $fp = $fi.FullName
+                if ($fp.StartsWith('\\?\')) { $fp = $fp.Substring(4) }
+                $rel = $fp.Substring($appDir.Length).TrimStart('\')
                 if ($rel -ieq 'resources\app.asar') { continue }
                 # VC 运行库若被安全软件拦截跳过（System32 有系统副本），不算缺失
                 $leafName = $fi.Name.ToLowerInvariant()
@@ -557,7 +567,7 @@ if ($mode -eq 'store-copy') {
         # 磁盘空间预检：峰值 ≈ 副本大小 + 3× asar 临时文件（解包/重打包/替换）
         $script:copyTotalBytes = [long]0
         try {
-            foreach ($f in [System.IO.Directory]::EnumerateFiles($appDir, '*', [System.IO.SearchOption]::AllDirectories)) {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $appDir), '*', [System.IO.SearchOption]::AllDirectories)) {
                 $script:copyTotalBytes += (New-Object System.IO.FileInfo($f)).Length
             }
         } catch {}

@@ -134,6 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.5.2** 复制/预检/完整性检查全链路支持 \\?\ 长路径（修复 pnpm-store 深目录超 260 字符导致的 DirectoryNotFound）
 - **v1.5.1** 弃用 Invoke-CommandInDesktopPackage 身份注入（部分机器原生崩溃 AccessViolation），改为直接启动
 - **v1.5.0** 适配 26.1029 的双引号字面量形态（`.get("enable_i18n",!1)`），两种形态全渠道支持
 - **v1.4.5** VC 运行库 DLL 被安全软件持续拦截时自动跳过并使用系统副本（不再整轮重试后中止安装）
