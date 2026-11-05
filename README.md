@@ -106,6 +106,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 启动报 "An Application Control policy has blocked this file" | 本机的 WDAC/Smart App Control/AppLocker 策略拦截签名失效的副本。需关闭 Smart App Control（Win11 设置→隐私和安全性）或请管理员将副本 exe 加入白名单；这是系统安全策略，工具无法绕过 |
 | 启动时报 AccessViolation（Invoke-CommandInDesktopPackage） | 该原生接口在部分机器上会崩溃，v1.5.1+ 已弃用身份注入，改为直接启动 |
 | 每次 Codex 自动更新都要重新汉化，太慢 | v1.4.0+ 已解决：快速通道补丁仅需约 30 秒，更新照收、等待归零。想彻底禁止更新：Win11 可用 `Set-AppxPackageAutoUpdateSettings -DisableUpdates`；Win10 可在 Microsoft Store 设置中全局关闭自动更新（会影响所有应用） |
 | 启动报 "找不到 ...\chrome_elf.dll 系统错误" | 副本是上次中断留下的半成品。v1.3.6+ 会逐文件校验副本完整性，缺文件自动重拷并重打补丁，直接重跑 `install.cmd` 即可 |
@@ -134,6 +135,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.5.3** 识别应用控制策略（WDAC/Smart App Control/AppLocker）拦截并给出精确处理指引
 - **v1.5.2** 复制/预检/完整性检查全链路支持 \\?\ 长路径（修复 pnpm-store 深目录超 260 字符导致的 DirectoryNotFound）
 - **v1.5.1** 弃用 Invoke-CommandInDesktopPackage 身份注入（部分机器原生崩溃 AccessViolation），改为直接启动
 - **v1.5.0** 适配 26.1029 的双引号字面量形态（`.get("enable_i18n",!1)`），两种形态全渠道支持

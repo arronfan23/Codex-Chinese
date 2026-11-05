@@ -197,6 +197,20 @@ Write-Info "启动：$exePath $argLine"
 #  Invoke-CommandInDesktopPackage 在部分机器上会 AccessViolation 原生崩溃，已弃用）
 $args = @()
 if ($argLine) { $args += $argLine }
-Start-Process -FilePath $exePath -ArgumentList $args
+try {
+    Start-Process -FilePath $exePath -ArgumentList $args
+} catch {
+    if ($_.Exception.Message -match 'Application Control|应用程序控制') {
+        Write-Err "本机的应用程序控制策略（WDAC / Smart App Control / AppLocker）拦截了副本的启动。"
+        Write-Warn "原因：汉化需要修改 app.asar 并同步 exe 哈希，这会使 ChatGPT.exe 的数字签名失效；"
+        Write-Warn "开启应用控制的机器会拒绝运行签名失效的程序。这是系统安全策略，不是工具 bug。"
+        Write-Warn "解决办法（任选其一）："
+        Write-Warn "  1) Windows 11：设置 → 隐私和安全性 → Smart App Control → 关闭（关闭后不可再自动开启，请自行权衡）；"
+        Write-Warn "  2) 企业/受管机器：请管理员在 WDAC/AppLocker 策略中将以下路径加入允许列表："
+        Write-Warn "     $exePath"
+        Write-Warn "  3) 使用原版 Codex（开始菜单入口不受影响，仅界面为英文）。"
+    }
+    throw
+}
 Write-Ok "已启动。语言可在 设置→General→Language 自由切换。"
 exit 0

@@ -64,7 +64,7 @@ function Find-AllOffsets {
 }
 
 function Invoke-SurgicalPatch {
-    param([string]$AsarPath)
+    param([string]$AsarPath, [switch]$SkipIntegrity)
     $rules = Get-SurgicalRules
     foreach ($r in $rules) {
         if ($r.Pattern.Length -ne $r.Replace.Length) { return @{ Success = $false; Already = $false; Reason = '规则非定长' } }
@@ -141,6 +141,16 @@ function Invoke-SurgicalPatch {
         if ($dirtyFiles.Count -eq 0) { return @{ Success = $false; Already = $false; Reason = '无可补丁文件' } }
 
         # ---- 4) 内存中完成全部校验与头部手术（此阶段不写盘，失败即安全回退）----
+        if ($SkipIntegrity) {
+            # 实验/兼容模式：只改数据区，头部与 exe 保持原样（exe 签名不失效，
+            # 可绕过应用程序控制策略）。依赖 Electron 不逐文件校验 integrity。
+            foreach ($kvp in $dirtyFiles.Values) {
+                $fs.Seek($dataOffset + $kvp.Entry.Offset, 'Begin') | Out-Null
+                $fs.Write($kvp.Content, 0, $kvp.Content.Length)
+            }
+            $fs.Flush()
+            return @{ Success = $true; Already = $false; Reason = '' }
+        }
         $sha = [System.Security.Cryptography.SHA256]::Create()
         $jsonMod = $jsonText
         $writePlan = @()
