@@ -28,6 +28,9 @@ $userProfile = [Environment]::GetFolderPath('UserProfile')
 if ([string]::IsNullOrWhiteSpace($userProfile)) { $userProfile = $env:USERPROFILE }
 $localizeRoot = $env:CODEX_LOCALIZE_ROOT
 if ([string]::IsNullOrWhiteSpace($localizeRoot)) { $localizeRoot = Join-Path $userProfile '.codex\codex-localized' }
+# 若本脚本所在目录就是安装根（含 install.json），优先用它——
+# 桌面快捷方式指向的 launch.cmd 就在安装根里，天然识别非 C 盘的安装位置
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'install.json')) { $localizeRoot = $PSScriptRoot }
 $localizeRoot = [System.IO.Path]::GetFullPath($localizeRoot)
 $legacyRoot   = Join-Path $userProfile '.codex\zh-cn-patched'
 $configFile   = Join-Path $localizeRoot 'install.json'

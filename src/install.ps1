@@ -45,6 +45,23 @@ if ([string]::IsNullOrWhiteSpace($userProfile)) { $userProfile = $env:USERPROFIL
 $localizeRoot = $Root
 if ([string]::IsNullOrWhiteSpace($localizeRoot)) { $localizeRoot = $env:CODEX_LOCALIZE_ROOT }
 if ([string]::IsNullOrWhiteSpace($localizeRoot)) { $localizeRoot = Join-Path $userProfile '.codex\codex-localized' }
+# 默认尽量不放 C 盘：选剩余空间充足的非系统固定盘（>=8GB，取剩余最大者）。
+# 仅当没有别的盘/都满，或 C 盘已有现成安装（不迁移已有安装）时才用 C。
+if ([string]::IsNullOrWhiteSpace($Root) -and [string]::IsNullOrWhiteSpace($env:CODEX_LOCALIZE_ROOT)) {
+    $existingDefault = Test-Path -LiteralPath (Join-Path $localizeRoot 'install.json')
+    if (-not $existingDefault) {
+        try {
+            # 按盘符顺序选（D、E、F...），避免挑到 subst/映射等奇怪别名盘
+            $candidates = @([System.IO.DriveInfo]::GetDrives() | Where-Object {
+                $_.IsReady -and $_.DriveType -eq 'Fixed' -and $_.Name -ne 'C:\' -and $_.AvailableFreeSpace -ge 8GB
+            } | Sort-Object -Property Name)
+            if ($candidates.Count -gt 0) {
+                $localizeRoot = $candidates[0].Name + 'codex-localized'
+                Write-Host ("[信息] 检测到非 C 盘可用空间，本地化副本将安装到：$localizeRoot" ) -ForegroundColor Cyan
+            }
+        } catch {}
+    }
+}
 $localizeRoot = [System.IO.Path]::GetFullPath($localizeRoot)
 $legacyRoot   = Join-Path $userProfile '.codex\zh-cn-patched'
 $configFile   = Join-Path $localizeRoot 'install.json'

@@ -106,6 +106,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 | 问题 | 解决 |
 |---|---|
+| 不想让副本占 C 盘 | v1.6.0+ 默认自动选择空间充足的非 C 盘（D、E...按盘符序，需 ≥8GB 剩余），没有可用盘才放 C。也可用 `setx CODEX_LOCALIZE_ROOT D:\codex-localized` 手动指定 |
 | 启动报 "An Application Control policy has blocked this file" | 本机的 WDAC/Smart App Control/AppLocker 策略拦截签名失效的副本。需关闭 Smart App Control（Win11 设置→隐私和安全性）或请管理员将副本 exe 加入白名单；这是系统安全策略，工具无法绕过 |
 | 启动时报 AccessViolation（Invoke-CommandInDesktopPackage） | 该原生接口在部分机器上会崩溃，v1.5.1+ 已弃用身份注入，改为直接启动 |
 | 每次 Codex 自动更新都要重新汉化，太慢 | v1.4.0+ 已解决：快速通道补丁仅需约 30 秒，更新照收、等待归零。想彻底禁止更新：Win11 可用 `Set-AppxPackageAutoUpdateSettings -DisableUpdates`；Win10 可在 Microsoft Store 设置中全局关闭自动更新（会影响所有应用） |
