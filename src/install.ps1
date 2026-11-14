@@ -220,6 +220,15 @@ function Copy-FileRobust {
             } finally { $in.Dispose() }
             return
         } catch [System.UnauthorizedAccessException], [System.IO.IOException] {
+            # 运行中的 exe 不能直接覆盖，但可以改名（Windows 允许重命名在用的映像文件）：
+            # 把旧文件挪成 .old，下次重试就能写入新文件
+            if ($attempt -ge 1 -and [System.IO.File]::Exists($Dst)) {
+                try {
+                    $oldPath = $Dst + '.old'
+                    if ([System.IO.File]::Exists($oldPath)) { try { [System.IO.File]::Delete($oldPath) } catch {} }
+                    [System.IO.File]::Move($Dst, $oldPath)
+                } catch {}
+            }
             if ($attempt -eq $delays.Count) {
                 # VC 运行库被安全软件（DLL 劫持防护类策略）持续拦截时：
                 # System32 已有同名运行库则跳过，应用会自动回退加载系统副本
@@ -257,21 +266,42 @@ function Copy-FileBytes {
 }
 
 # ---------- 关闭目标目录下的 Codex 进程（路径校验后）----------
+# 按路径找进程（.NET + CIM 双通道：提权进程的 .Path 常读不到，Win32_Process 能补上）
+function Get-ProcessesUnderRoots {
+    param([string[]]$Roots)
+    $result = @()
+    $seen = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        $pp = $null
+        try { $pp = $p.Path } catch {}
+        if (-not $pp) { continue }
+        foreach ($r in $Roots) {
+            if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $result += $p; $seen[$p.Id] = $true; break }
+        }
+    }
+    try {
+        $cim = Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe' OR Name='node.exe'" -ErrorAction SilentlyContinue
+        foreach ($c in $cim) {
+            if ($seen.ContainsKey([int]$c.ProcessId)) { continue }
+            $pp = $c.ExecutablePath
+            if (-not $pp) { continue }
+            foreach ($r in $Roots) {
+                if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $p = Get-Process -Id $c.ProcessId -ErrorAction SilentlyContinue
+                    if ($p) { $result += $p }
+                    break
+                }
+            }
+        }
+    } catch {}
+    return $result
+}
+
 function Stop-CodexProcesses {
     param([string[]]$Roots)
     # 按可执行文件路径匹配（不按进程名）：副本目录下的 node.exe / codex-computer-use.exe
     # 等子进程也加载着副本的 DLL，进程名过滤杀不到它们，复制时会因文件被占用而 Access Denied
-    $procs = Get-Process -ErrorAction SilentlyContinue
-    $victims = @()
-    foreach ($p in $procs) {
-        try {
-            $pp = $p.Path
-            if (-not $pp) { continue }
-            foreach ($r in $Roots) {
-                if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $victims += $p; break }
-            }
-        } catch {}
-    }
+    $victims = @(Get-ProcessesUnderRoots -Roots $Roots)
     if ($victims.Count -eq 0) { return }
     Write-Info ("检测到 {0} 个 Codex 进程，准备关闭..." -f $victims.Count)
     foreach ($p in $victims) { try { $p.CloseMainWindow() | Out-Null } catch {} }
@@ -283,16 +313,7 @@ function Stop-CodexProcesses {
             try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
         }
         Start-Sleep -Seconds 2
-        $alive = @()
-        foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
-            try {
-                $pp = $p.Path
-                if (-not $pp) { continue }
-                foreach ($r in $Roots) {
-                    if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $alive += $p; break }
-                }
-            } catch {}
-        }
+        $alive = @(Get-ProcessesUnderRoots -Roots $Roots)
     } while ($alive.Count -gt 0 -and (Get-Date) -lt $deadline)
     if ($alive.Count -gt 0) {
         Write-Warn ("仍有 {0} 个进程未能结束（可能以管理员身份运行）。" -f $alive.Count)
@@ -596,6 +617,12 @@ if ($mode -eq 'store-copy') {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Write-Info "复制 Codex 到 $targetApp ..."
         $script:copyBytes = [long]0
+        # 清理上次改名留下的 .old 文件（仍在使用的会跳过）
+        try {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $targetApp), '*.old', [System.IO.SearchOption]::AllDirectories)) {
+                try { [System.IO.File]::Delete($f) } catch {}
+            }
+        } catch {}
         Copy-TreeBytes -Src $appDir -Dst $targetApp
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()

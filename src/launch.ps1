@@ -72,20 +72,41 @@ function Get-StoreAppDir {
     return $null
 }
 
+# 按路径找进程（.NET + CIM 双通道：提权进程的 .Path 常读不到，Win32_Process 能补上）
+function Get-ProcessesUnderRoots {
+    param([string[]]$Roots)
+    $result = @()
+    $seen = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        $pp = $null
+        try { $pp = $p.Path } catch {}
+        if (-not $pp) { continue }
+        foreach ($r in $Roots) {
+            if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $result += $p; $seen[$p.Id] = $true; break }
+        }
+    }
+    try {
+        $cim = Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe' OR Name='node.exe'" -ErrorAction SilentlyContinue
+        foreach ($c in $cim) {
+            if ($seen.ContainsKey([int]$c.ProcessId)) { continue }
+            $pp = $c.ExecutablePath
+            if (-not $pp) { continue }
+            foreach ($r in $Roots) {
+                if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $p = Get-Process -Id $c.ProcessId -ErrorAction SilentlyContinue
+                    if ($p) { $result += $p }
+                    break
+                }
+            }
+        }
+    } catch {}
+    return $result
+}
+
 function Stop-CodexProcesses {
     param([string[]]$Roots)
     # 按可执行文件路径匹配：副本目录下的 node.exe 等子进程也需一并关闭
-    $procs = Get-Process -ErrorAction SilentlyContinue
-    $victims = @()
-    foreach ($p in $procs) {
-        try {
-            $pp = $p.Path
-            if (-not $pp) { continue }
-            foreach ($r in $Roots) {
-                if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $victims += $p; break }
-            }
-        } catch {}
-    }
+    $victims = @(Get-ProcessesUnderRoots -Roots $Roots)
     if ($victims.Count -eq 0) { return }
     Write-Info ("检测到 {0} 个 Codex 进程，准备关闭..." -f $victims.Count)
     foreach ($p in $victims) { try { $p.CloseMainWindow() | Out-Null } catch {} }
@@ -97,16 +118,7 @@ function Stop-CodexProcesses {
             try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
         }
         Start-Sleep -Seconds 2
-        $alive = @()
-        foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
-            try {
-                $pp = $p.Path
-                if (-not $pp) { continue }
-                foreach ($r in $Roots) {
-                    if ($pp.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $alive += $p; break }
-                }
-            } catch {}
-        }
+        $alive = @(Get-ProcessesUnderRoots -Roots $Roots)
     } while ($alive.Count -gt 0 -and (Get-Date) -lt $deadline)
     if ($alive.Count -gt 0) {
         Write-Warn ("仍有 {0} 个进程未能结束（可能以管理员身份运行）。" -f $alive.Count)
