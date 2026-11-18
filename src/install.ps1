@@ -55,9 +55,18 @@ if ([string]::IsNullOrWhiteSpace($Root) -and [string]::IsNullOrWhiteSpace($env:C
             $candidates = @([System.IO.DriveInfo]::GetDrives() | Where-Object {
                 $_.IsReady -and $_.DriveType -eq 'Fixed' -and $_.Name -ne 'C:\' -and $_.AvailableFreeSpace -ge 8GB
             } | Sort-Object -Property Name)
-            if ($candidates.Count -gt 0) {
-                $localizeRoot = $candidates[0].Name + 'codex-localized'
-                Write-Host ("[信息] 检测到非 C 盘可用空间，本地化副本将安装到：$localizeRoot" ) -ForegroundColor Cyan
+            # 逐盘实际试建目录：有些数据盘根目录 ACL 不允许普通用户建文件夹，
+            # 光看空余空间会选到写不进去的盘。能建成就用，不行换下一个。
+            foreach ($d in $candidates) {
+                $tryRoot = $d.Name + 'codex-localized'
+                try {
+                    New-Item -ItemType Directory -Force -Path $tryRoot -ErrorAction Stop | Out-Null
+                    $localizeRoot = $tryRoot
+                    Write-Host ("[信息] 检测到非 C 盘可用空间，本地化副本将安装到：$localizeRoot" ) -ForegroundColor Cyan
+                    break
+                } catch {
+                    Write-Host ("[警告] 无法在 {0} 根目录创建文件夹（权限不足），尝试其他盘..." -f $d.Name) -ForegroundColor Yellow
+                }
             }
         } catch {}
     }

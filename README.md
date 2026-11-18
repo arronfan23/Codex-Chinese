@@ -136,6 +136,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.6.2** 选盘时实际试建目录验证可写（修复数据盘根目录 ACL 拒绝导致的创建失败），不行自动换下一盘
 - **v1.6.1** 运行中 exe 复制失败时自动改名 .old 解锁再写入；进程路径查找加 CIM/WMI 双通道，提权进程不再漏杀
 - **v1.5.3** 识别应用控制策略（WDAC/Smart App Control/AppLocker）拦截并给出精确处理指引
 - **v1.5.2** 复制/预检/完整性检查全链路支持 \\?\ 长路径（修复 pnpm-store 深目录超 260 字符导致的 DirectoryNotFound）
