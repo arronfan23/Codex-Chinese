@@ -61,6 +61,11 @@ if ([string]::IsNullOrWhiteSpace($Root) -and [string]::IsNullOrWhiteSpace($env:C
                 $tryRoot = $d.Name + 'codex-localized'
                 try {
                     New-Item -ItemType Directory -Force -Path $tryRoot -ErrorAction Stop | Out-Null
+                    # 再验证能真正写入：有些目录建得出来却写不进去
+                    # （管理员创建的目录/受控文件夹访问，robocopy 也会被拒）
+                    $probe = Join-Path $tryRoot '.write-test'
+                    [System.IO.File]::WriteAllText($probe, 'x', [System.Text.Encoding]::ASCII)
+                    Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
                     $localizeRoot = $tryRoot
                     Write-Host ("[信息] 检测到非 C 盘可用空间，本地化副本将安装到：$localizeRoot" ) -ForegroundColor Cyan
                     break
