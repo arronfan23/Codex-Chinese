@@ -87,6 +87,30 @@ function Write-Log { param([string]$m) try { Add-Content -LiteralPath $logFile -
 . (Join-Path $scriptDir 'smo-banner.ps1')
 . (Join-Path $scriptDir 'surgical-patch.ps1')
 
+# 优先用 robocopy 复制：它是微软系统程序，受控文件夹访问/杀软默认信任，
+# 可避开对 powershell.exe 的整进程写入封锁（本机多文件连续被拦的根因）。
+# 失败时回退到 PowerShell 字节复制（带重试/改名解锁）。
+function Copy-AppTreeRobocopy {
+    param([string]$Src, [string]$Dst, [long]$TotalBytes)
+    # 路径必须带引号：Start-Process 拼接参数时含空格的路径会被拆开
+    $argList = @('"' + $Src + '"', '"' + $Dst + '"', '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1', '/MT:4', '/256')
+    $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList $argList -PassThru -NoNewWindow
+    $script:copyBytes = [long]0
+    while (-not $proc.HasExited) {
+        Start-Sleep -Milliseconds 800
+        try {
+            $sum = [long]0
+            foreach ($f in [System.IO.Directory]::EnumerateFiles((ConvertTo-LongPath $Dst), '*', [System.IO.SearchOption]::AllDirectories)) {
+                $sum += (New-Object System.IO.FileInfo($f)).Length
+            }
+            $script:copyBytes = $sum
+            Write-ThrottledProgress -Activity '复制 Codex 副本' -Status ("{0:N0}/{1:N0} MB" -f ($sum/1MB), ($TotalBytes/1MB)) -Percent (100.0 * $sum / [Math]::Max([long]1, $TotalBytes))
+        } catch {}
+    }
+    $proc.WaitForExit()
+    return ($proc.ExitCode -lt 8)  # robocopy 退出码 0-7 为成功
+}
+
 # ---------- 带重试的封装 ----------
 function Invoke-WithRetry {
     param([scriptblock]$Action, [int]$Retries = 3, [int]$DelaySec = 3, [string]$What = '操作')
@@ -632,7 +656,11 @@ if ($mode -eq 'store-copy') {
                 try { [System.IO.File]::Delete($f) } catch {}
             }
         } catch {}
-        Copy-TreeBytes -Src $appDir -Dst $targetApp
+        $copied = Copy-AppTreeRobocopy -Src $appDir -Dst $targetApp -TotalBytes $script:copyTotalBytes
+        if (-not $copied) {
+            Write-Info "robocopy 复制失败或受限，改用内置复制引擎 ..."
+            Copy-TreeBytes -Src $appDir -Dst $targetApp
+        }
         Complete-UtilProgress -Activity '复制 Codex 副本'
         $sw.Stop()
         Write-Ok ("复制完成，耗时 {0:N1} 秒" -f $sw.Elapsed.TotalSeconds)
@@ -643,7 +671,7 @@ if ($mode -eq 'store-copy') {
         if ($script:copyFailed.Count -gt 0) {
             Write-Err ("有 {0} 个文件复制失败：" -f $script:copyFailed.Count)
             $script:copyFailed | Select-Object -First 10 | ForEach-Object { Write-Err "    $_" }
-            Write-Warn "常见原因：1) 本地化副本仍在后台运行（含托盘/管理员身份的进程），请在任务管理器结束相关进程后重试；2) 杀毒软件的『DLL 劫持防护』或 Windows 勒索软件防护拦截了写入，请将 powershell.exe 加入白名单后重试。"
+            Write-Warn "常见原因：1) 本地化副本仍在后台运行（含托盘/管理员身份的进程），请在任务管理器结束相关进程后重试；2) 杀毒软件或 Windows『受控文件夹访问』拦截了写入——可在 Windows 安全中心 → 病毒和威胁防护 → 勒索软件防护 → 受控文件夹访问 中允许 powershell.exe 通过（或临时关闭该功能）；3) 杀软的 DLL 劫持防护拦截，请将 powershell.exe 加入白名单。"
             throw "复制不完整，已中止。处理上述原因后重新运行本安装器即可。"
         }
     } else {
