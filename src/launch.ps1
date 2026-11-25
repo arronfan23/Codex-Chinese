@@ -204,8 +204,9 @@ if ($needReinstall) {
 $exePath = Join-Path $targetApp 'ChatGPT.exe'
 if (-not (Test-Path -LiteralPath $exePath)) { Write-Err "启动文件缺失：$exePath"; exit 1 }
 
-$argLine = ''
-if ($lang) { $argLine = "--lang=$lang" }
+# --no-sandbox：部分机器的 Chromium GPU 沙箱会报 0xC0000022（拒绝访问）导致副本崩溃
+$argLine = '--no-sandbox'
+if ($lang) { $argLine = "--no-sandbox --lang=$lang" }
 Write-Info "启动：$exePath $argLine"
 # 直接启动即可：asar 修复正确后副本不需要任何包身份注入。
 # （早期"该进程没有程序包标识符"弹窗实为 asar 损坏的连带症状；
@@ -227,19 +228,14 @@ try {
     }
     throw
 }
-# 启动后存活检测：副本若在新版本上崩溃（如 0x80000003 FATAL），
-# 自动回退启动原版应用，避免"双击没反应"
+# 启动后存活检测：副本若崩溃，明确提示（不擅自改开英文原版，
+# 免得用户误以为"汉化没生效"）
 Start-Sleep -Seconds 8
 $alive = @(Get-ProcessesUnderRoots -Roots @($targetApp))
 if ($alive.Count -eq 0) {
-    Write-Warn "本地化副本未能保持运行（可能当前 Codex 版本尚未兼容）。"
-    Write-Warn "正在改为启动原版 Codex（界面英文，功能正常）..."
-    try {
-        Start-Process 'explorer.exe' -ArgumentList 'shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App'
-        Write-Ok "已启动原版。请等待汉化工具更新到兼容当前版本后再用副本。"
-    } catch {
-        Write-Err "原版启动也失败，请从开始菜单手动打开 Codex。"
-    }
+    Write-Err "本地化副本未能保持运行（已带 --no-sandbox 启动）。"
+    Write-Warn "请把本窗口的报错内容反馈给维护者以适配当前 Codex 版本。"
+    Write-Warn "如急用，可从开始菜单手动打开原版 Codex（界面英文）。"
     exit 0
 }
 Write-Ok "已启动。语言可在 设置→General→Language 自由切换。"
