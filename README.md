@@ -136,6 +136,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.6.5** 启动后存活检测：副本崩溃时自动回退启动原版应用，不再"双击没反应"
 - **v1.6.4** 选盘改为"建目录+试写文件"双重验证（修复目录建得出但写不进去的 ACL/CFA 场景）
 - **v1.6.3** 复制改用系统 robocopy（绕过对 powershell.exe 的整进程写入封锁/受控文件夹访问），失败回退内置复制
 - **v1.6.2** 选盘时实际试建目录验证可写（修复数据盘根目录 ACL 拒绝导致的创建失败），不行自动换下一盘

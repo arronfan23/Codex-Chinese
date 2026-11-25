@@ -227,5 +227,20 @@ try {
     }
     throw
 }
+# 启动后存活检测：副本若在新版本上崩溃（如 0x80000003 FATAL），
+# 自动回退启动原版应用，避免"双击没反应"
+Start-Sleep -Seconds 8
+$alive = @(Get-ProcessesUnderRoots -Roots @($targetApp))
+if ($alive.Count -eq 0) {
+    Write-Warn "本地化副本未能保持运行（可能当前 Codex 版本尚未兼容）。"
+    Write-Warn "正在改为启动原版 Codex（界面英文，功能正常）..."
+    try {
+        Start-Process 'explorer.exe' -ArgumentList 'shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App'
+        Write-Ok "已启动原版。请等待汉化工具更新到兼容当前版本后再用副本。"
+    } catch {
+        Write-Err "原版启动也失败，请从开始菜单手动打开 Codex。"
+    }
+    exit 0
+}
 Write-Ok "已启动。语言可在 设置→General→Language 自由切换。"
 exit 0
