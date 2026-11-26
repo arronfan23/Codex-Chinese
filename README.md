@@ -136,6 +136,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "src\launch.ps1" -ForceUpdat
 
 ## 📝 更新日志
 
+- **v1.6.8** robocopy 改用 /COPY:DT（不复制 EFS 加密属性，修复错误 6000 无法加密指定的文件）；补丁前校验 app.asar 存在
 - **v1.6.7** 副本默认带 `--no-sandbox` 启动（修复部分机器 Chromium GPU 沙箱 0xC0000022 崩溃）；取消自动回退英文原版，崩溃时明确提示
 - **v1.6.6** 实测 26.1120.6357.0 汉化正常；Release 附该版 MSIX（26.1117.4957.0 存在启动崩溃，建议直接装 26.1120）
 - **v1.6.5** 启动后存活检测：副本崩溃时自动回退启动原版应用，不再"双击没反应"

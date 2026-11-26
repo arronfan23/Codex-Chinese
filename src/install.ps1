@@ -98,7 +98,9 @@ function Write-Log { param([string]$m) try { Add-Content -LiteralPath $logFile -
 function Copy-AppTreeRobocopy {
     param([string]$Src, [string]$Dst, [long]$TotalBytes)
     # 路径必须带引号：Start-Process 拼接参数时含空格的路径会被拆开
-    $argList = @('"' + $Src + '"', '"' + $Dst + '"', '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1', '/MT:4', '/256')
+    # /COPY:DT 只带数据+时间戳，不带属性：默认 /COPY:DAT 会连 EFS 加密属性一起复制，
+    # 目标盘不支持 EFS 时报错误 6000（无法加密指定的文件）
+    $argList = @('"' + $Src + '"', '"' + $Dst + '"', '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1', '/MT:4', '/256', '/COPY:DT', '/DCOPY:T')
     $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList $argList -PassThru -NoNewWindow
     $script:copyBytes = [long]0
     while (-not $proc.HasExited) {
@@ -405,6 +407,9 @@ function Patch-App {
     param([string]$AppDir, [string]$Work, [switch]$NoSurgical)
     $asar = Join-Path $AppDir 'resources\app.asar'
     $bak = Join-Path $AppDir 'resources\app.asar.bak'
+    if (-not (Test-Path -LiteralPath $asar)) {
+        throw "未找到 $asar（复制未完成）。请重新运行本安装器。"
+    }
 
     # 快速通道：外科手术式定长补丁（不解包、不重打包，秒级）。
     # 版本升级后的重装从 ~7 分钟降到 ~30 秒；不适用时回退全量流程。
